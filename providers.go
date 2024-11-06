@@ -37,10 +37,10 @@ func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux) *http.Server {
 	return srv
 }
 
-func NewServeMux(router handlers.Handler) *http.ServeMux {
+func NewServeMux(routers []handlers.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
-	// for _, router := range routers {
-	router.ServeHttp(mux)
-	// }
+	for _, router := range routers {
+		router.ServeHttp(mux)
+	}
 	return mux
 }

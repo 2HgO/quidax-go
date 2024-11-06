@@ -4,6 +4,7 @@ import (
 	"database/sql"
 
 	tdb "github.com/tigerbeetle/tigerbeetle-go"
+	"go.uber.org/zap"
 )
 
 type service struct {
@@ -11,6 +12,8 @@ type service struct {
 	dataDB         *sql.DB
 	accountService AccountService
 	swapService    InstantSwapService
+	walletService  WalletService
+	log            *zap.Logger
 }
 
 var Ledgers = map[uint32]string{

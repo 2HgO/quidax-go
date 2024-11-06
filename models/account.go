@@ -19,7 +19,4 @@ type Account struct {
 	// ? maybe change to uuid.UUID
 	ParentID      *string `json:"-"`
 	Password      string  `json:"-"`
-
-	// aggregation fields, only deserialized from database
-	Parent *Account `json:"-"`
 }

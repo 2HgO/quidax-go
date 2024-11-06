@@ -18,12 +18,22 @@ func main() {
 	fx.New(
 		fx.Provide(
 			NewHttpServer,
-			NewServeMux,
+			fx.Annotate(
+				NewServeMux,
+				fx.ParamTags(`group:"handlers"`),
+			),
 			fx.Annotate(
 				handlers.NewAccountHandler,
 				fx.As(new(handlers.Handler)),
+				fx.ResultTags(`group:"handlers"`),
+			),
+			fx.Annotate(
+				handlers.NewWalletHandler,
+				fx.As(new(handlers.Handler)),
+				fx.ResultTags(`group:"handlers"`),
 			),
 			handlers.NewMiddlewareHandler,
+			services.NewWalletService,
 			services.NewAccountService,
 			db.GetDataDBConnection,
 			db.GetTxDBConnection,

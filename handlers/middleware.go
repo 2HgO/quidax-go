@@ -5,8 +5,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/2HgO/quidax-go/errors"
 	"github.com/2HgO/quidax-go/services"
-	"github.com/2HgO/quidax-go/utils"
+	"go.uber.org/zap"
 )
 
 type MiddleWareHandler interface {
@@ -15,23 +16,24 @@ type MiddleWareHandler interface {
 
 type middlewareHandler struct {
 	accountService services.AccountService
+	log *zap.Logger
 }
 
-func NewMiddlewareHandler(account services.AccountService) MiddleWareHandler {
-	return &middlewareHandler{accountService: account}
+func NewMiddlewareHandler(account services.AccountService, log *zap.Logger) MiddleWareHandler {
+	return &middlewareHandler{accountService: account, log: log}
 }
 
 func (m *middlewareHandler) ValidateAccessToken(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimPrefix(r.Header.Get("authorization"), "Bearer ")
 		if token == "" {
-			utils.JSON(w, 401, map[string]any{"data": "invalid token provided"})
+			errors.NewInvalidTokenError().Serialize(w)
 			return
 		}
 
 		res, err := m.accountService.GetAccountByAccessToken(r.Context(), token)
 		if err != nil {
-			utils.JSON(w, 500, map[string]any{"data": err.Error()})
+			errors.AsAppError(err).Serialize(w)
 			return
 		}
 
