@@ -157,12 +157,11 @@ func NewUnknownError(err any) AppError {
 	return NewFatalError(fmt.Errorf("%v", err))
 }
 
-func NewFailedDependencyError(msg, err string) AppError {
+func NewFailedDependencyError(msg string) AppError {
 	return AppError{
 		Code:     http.StatusFailedDependency,
 		Type:     ErrFailedDependency,
 		Message:  msg,
-		Internal: err,
 	}
 }
 

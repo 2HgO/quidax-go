@@ -10,10 +10,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// "net/http"
-
-// "go.uber.org/fx"
-
 func main() {
 	fx.New(
 		fx.Provide(
@@ -32,7 +28,19 @@ func main() {
 				fx.As(new(handlers.Handler)),
 				fx.ResultTags(`group:"handlers"`),
 			),
+			fx.Annotate(
+				handlers.NewInstantSwapHandler,
+				fx.As(new(handlers.Handler)),
+				fx.ResultTags(`group:"handlers"`),
+			),
+			fx.Annotate(
+				handlers.NewWithdrawalHandler,
+				fx.As(new(handlers.Handler)),
+				fx.ResultTags(`group:"handlers"`),
+			),
 			handlers.NewMiddlewareHandler,
+			services.NewInstantSwapService,
+			services.NewWithdrawalService,
 			services.NewWalletService,
 			services.NewAccountService,
 			db.GetDataDBConnection,

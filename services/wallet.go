@@ -8,10 +8,10 @@ import (
 	"github.com/2HgO/quidax-go/models"
 	"github.com/2HgO/quidax-go/types/requests"
 	"github.com/2HgO/quidax-go/types/responses"
+	"github.com/2HgO/quidax-go/utils"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 
-	// "github.com/google/uuid"
 	tdb "github.com/tigerbeetle/tigerbeetle-go"
 	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 	"go.uber.org/zap"
@@ -20,10 +20,12 @@ import (
 type WalletService interface {
 	FetchUserWallets(ctx context.Context, req *requests.FetchUserWalletsRequest) (*responses.Response[[]*responses.UserWalletResponseData], error)
 	FetchUserWallet(ctx context.Context, req *requests.FetchUserWalletRequest) (*responses.Response[*responses.UserWalletResponseData], error)
+
+	LookupWallets(ctx context.Context, ids []string) (map[string]*responses.UserWalletResponseData, error)
 }
 
 func NewWalletService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, log *zap.Logger) WalletService {
-	return &walletService{
+	w := &walletService{
 		service: service{
 			transactionDB:  txDatabase,
 			dataDB:         dataDatabase,
@@ -31,18 +33,51 @@ func NewWalletService(txDatabase tdb.Client, dataDatabase *sql.DB, accountServic
 			log:            log,
 		},
 	}
+
+	if err := w.initSystemAccounts(); err != nil {
+		panic(err)
+	}
+
+	return w
 }
 
 type walletService struct {
 	service
 }
 
-func (w *walletService) FetchUserWallets(ctx context.Context, req *requests.FetchUserWalletsRequest) (*responses.Response[[]*responses.UserWalletResponseData], error) {
-	parent := ctx.Value("user").(*models.Account)
-	if req.UserID == parent.ID {
-		req.UserID = "me"
+func (w *walletService) initSystemAccounts() error {
+	systemAccounts := []tdb_types.Account{}
+	for accountID := range Ledgers {
+		systemAccounts = append(systemAccounts, tdb_types.Account{
+			ID:     tdb_types.ToUint128(uint64(accountID)),
+			Ledger: accountID,
+			Code:   2,
+			Flags:  tdb_types.AccountFlags{History: true}.ToUint16(),
+		})
 	}
 
+	res, err := w.transactionDB.CreateAccounts(systemAccounts)
+	if err != nil {
+		return err
+	}
+	for _, r := range res {
+		switch r.Result {
+		case tdb_types.AccountExists,
+			tdb_types.AccountExistsWithDifferentFlags,
+			tdb_types.AccountExistsWithDifferentUserData128,
+			tdb_types.AccountExistsWithDifferentUserData64,
+			tdb_types.AccountExistsWithDifferentUserData32,
+			tdb_types.AccountExistsWithDifferentLedger,
+			tdb_types.AccountExistsWithDifferentCode:
+		default:
+			return errors.NewFailedDependencyError(r.Result.String())
+		}
+	}
+
+	return nil
+}
+
+func (w *walletService) FetchUserWallets(ctx context.Context, req *requests.FetchUserWalletsRequest) (*responses.Response[[]*responses.UserWalletResponseData], error) {
 	user, err := w.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
 	if err != nil {
 		return nil, err
@@ -97,11 +132,6 @@ func (w *walletService) FetchUserWallets(ctx context.Context, req *requests.Fetc
 }
 
 func (w *walletService) FetchUserWallet(ctx context.Context, req *requests.FetchUserWalletRequest) (*responses.Response[*responses.UserWalletResponseData], error) {
-	parent := ctx.Value("user").(*models.Account)
-	if req.UserID == parent.ID {
-		req.UserID = "me"
-	}
-
 	user, err := w.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
 	if err != nil {
 		return nil, err
@@ -143,8 +173,8 @@ func (w *walletService) FetchUserWallet(ctx context.Context, req *requests.Fetch
 	data := &responses.UserWalletResponseData{
 		ID:            wallet.ID,
 		Currency:      wallet.Token,
-		Balance:       float64(balance.Uint64()) * 1e-9,
-		LockedBalance: float64(pendingDebits.Uint64()) * 1e-9,
+		Balance:       utils.ApproximateAmount(wallet.Token, float64(balance.Uint64())*1e-9),
+		LockedBalance: utils.ApproximateAmount(wallet.Token, float64(pendingDebits.Uint64())*1e-9),
 		User:          user.Data,
 	}
 
@@ -152,4 +182,72 @@ func (w *walletService) FetchUserWallet(ctx context.Context, req *requests.Fetch
 		Status: "successful",
 		Data:   data,
 	}, nil
+}
+
+func (w *walletService) LookupWallets(ctx context.Context, ids []string) (map[string]*responses.UserWalletResponseData, error) {
+	rows, err := sq.
+		Select(
+			"wallets.id", "wallets.account_id", "wallets.token",
+
+			"accounts.id", "accounts.sn", "accounts.display_name", "accounts.email", "accounts.first_name",
+			"accounts.last_name", "accounts.callback_url", "accounts.created_at", "accounts.updated_at",
+		).
+		From("wallets").
+		Join("accounts on wallets.account_id = accounts.id").
+		Where(sq.Eq{"wallets.id": ids}).
+		RunWith(w.dataDB).
+		QueryContext(ctx)
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
+	var walletsMap = map[string]*models.Wallet{}
+	var accountMap = map[string]*models.Account{}
+	walletIds := make([]tdb_types.Uint128, 0)
+	for rows.Next() {
+		wallet := &models.Wallet{}
+		account := &models.Account{}
+		err = rows.Scan(
+			&wallet.ID, &wallet.AccountID, &wallet.Token,
+
+			&account.ID, &account.SN, &account.DisplayName, &account.Email, &account.FirstName,
+			&account.LastName, &account.CallbackURL, &account.CreatedAt, &account.UpdatedAt,
+		)
+		if err != nil {
+			return nil, errors.HandleDataDBError(err)
+		}
+		walletId, err := tdb_types.HexStringToUint128(wallet.ID)
+		if err != nil {
+			return nil, err
+		}
+		walletIds = append(walletIds, walletId)
+		walletsMap[wallet.ID] = wallet
+		accountMap[account.ID] = account
+	}
+
+	res, err := w.transactionDB.LookupAccounts(walletIds)
+	if err != nil {
+		return nil, err
+	}
+
+	data := make(map[string]*responses.UserWalletResponseData)
+	for i := range res {
+		credits := res[i].CreditsPosted.BigInt()
+		debits := res[i].DebitsPosted.BigInt()
+		pendingDebits := res[i].DebitsPending.BigInt()
+		balance := credits.Sub(&credits, &debits)
+		balance = balance.Sub(balance, &pendingDebits)
+		wallet := walletsMap[res[i].ID.String()]
+		user := accountMap[wallet.AccountID]
+
+		data[res[i].ID.String()] = &responses.UserWalletResponseData{
+			ID:            wallet.ID,
+			Currency:      wallet.Token,
+			Balance:       float64(balance.Uint64()) * 1e-9,
+			LockedBalance: float64(pendingDebits.Uint64()) * 1e-9,
+			User:          user,
+		}
+	}
+
+	return data, nil
 }

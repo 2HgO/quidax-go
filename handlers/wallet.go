@@ -28,8 +28,8 @@ type walletHandler struct {
 }
 
 func (ws *walletHandler) ServeHttp(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/wallets/{user_id}", utils.Middleware(ws.FetchUserWallets, ws.middlewares.ValidateAccessToken))
-	mux.HandleFunc("GET /api/v1/wallets/{user_id}/{currency}", utils.Middleware(ws.FetchUserWallet, ws.middlewares.ValidateAccessToken))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets", ws.middlewares.AttchValidateAccessToken(ws.FetchUserWallets))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}", ws.middlewares.AttchValidateAccessToken(ws.FetchUserWallet))
 }
 
 func (ws *walletHandler) FetchUserWallet(w http.ResponseWriter, r *http.Request) {

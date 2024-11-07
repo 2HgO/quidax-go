@@ -1,0 +1,354 @@
+package services
+
+import (
+	"context"
+	"database/sql"
+	"math"
+	"time"
+
+	"github.com/2HgO/quidax-go/errors"
+	"github.com/2HgO/quidax-go/models"
+	"github.com/2HgO/quidax-go/types/requests"
+	"github.com/2HgO/quidax-go/types/responses"
+	"github.com/2HgO/quidax-go/utils"
+	sq "github.com/Masterminds/squirrel"
+	"github.com/google/uuid"
+	tdb "github.com/tigerbeetle/tigerbeetle-go"
+	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
+	"go.uber.org/zap"
+)
+
+type WithdrawalService interface {
+	CreateUserWithdrawal(ctx context.Context, req *requests.CreateWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
+	FetchWithdrawal(ctx context.Context, req *requests.FetchWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
+	FetchWithdrawals(ctx context.Context, req *requests.FetchWithdrawalsRequest) (*responses.Response[[]*responses.WithdrawalResponseData], error)
+}
+
+func NewWithdrawalService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, walletService WalletService, log *zap.Logger) WithdrawalService {
+	return &withdrawalService{
+		service: service{
+			transactionDB:  txDatabase,
+			dataDB:         dataDatabase,
+			accountService: accountService,
+			walletService:  walletService,
+			log:            log,
+		},
+	}
+}
+
+type withdrawalService struct {
+	service
+}
+
+func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *requests.CreateWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error) {
+	amount := utils.ApproximateAmount(req.Currency, req.Amount)
+	wallet, err := w.walletService.FetchUserWallet(ctx, &requests.FetchUserWalletRequest{UserID: req.UserID, Currency: req.Currency})
+	if err != nil {
+		return nil, err
+	}
+	walletID, err := tdb_types.HexStringToUint128(wallet.Data.ID)
+	if err != nil {
+		return nil, err
+	}
+	destination, err := w.walletService.FetchUserWallet(context.WithValue(ctx, "skip_check", true), &requests.FetchUserWalletRequest{UserID: req.FundUid, Currency: req.Currency})
+	if err != nil {
+		return nil, err
+	}
+	destinationID, err := tdb_types.HexStringToUint128(destination.Data.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if wallet.Data.Balance < amount {
+		return nil, errors.NewFailedDependencyError("Insufficient Balance")
+	}
+
+	id := tdb_types.ID()
+	ref := uuid.New()
+	withdrawal := &models.Withdrawal{
+		ID:              id.String(),
+		WalletID:        wallet.Data.ID,
+		AccountID:       wallet.Data.User.ID,
+		Ref:             utils.String(ref.String()),
+		TransactionNote: req.TransactionNote,
+		Narration:       req.Narration,
+		// todo: handle other destination types
+		Status: models.Completed_WithdrawalStatus,
+		Recipient: &models.Recipient{
+			Type: models.Internal_RecipientType,
+			Details: &models.RecipientDetails{
+				Name:           utils.String(destination.Data.User.FirstName),
+				DestinationTag: utils.String(destination.Data.User.ID),
+			},
+		},
+	}
+
+	tx, err := w.dataDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Defer a rollback in case anything fails.
+	defer tx.Rollback()
+
+	_, err = sq.
+		Insert("withdrawals").
+		Columns(
+			"id", "wallet_id", "account_id", "ref", "transaction_note", "narration",
+			"status", "recipient_type", "recipient_details_name",
+			"recipient_details_destination_tag", "recipient_details_address",
+		).
+		Values(
+			withdrawal.ID, withdrawal.WalletID, withdrawal.AccountID, withdrawal.Ref, withdrawal.TransactionNote, withdrawal.Narration,
+			withdrawal.Status, withdrawal.Recipient.Type, withdrawal.Recipient.Details.Name,
+			withdrawal.Recipient.Details.DestinationTag, withdrawal.Recipient.Details.Address,
+		).
+		RunWith(tx).
+		ExecContext(ctx)
+
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	userData64 := tdb_types.BytesToUint128(ref).BigInt()
+	trf := tdb_types.Transfer{
+		ID:              id,
+		DebitAccountID:  walletID,
+		CreditAccountID: destinationID,
+		Amount:          tdb_types.ToUint128(uint64(math.Floor(amount * 10e8))),
+		Ledger:          LedgerIDs[req.Currency],
+		UserData64:      userData64.Uint64(),
+		Code:            2,
+	}
+	res, err := w.transactionDB.CreateTransfers([]tdb_types.Transfer{trf})
+	if err != nil {
+		return nil, errors.HandleTxDBError(err)
+	}
+	if len(res) > 0 {
+		return nil, errors.NewUnknownError(res[0].Result.String())
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
+	return &responses.Response[*responses.WithdrawalResponseData]{
+		Data: &responses.WithdrawalResponseData{
+			ID:              id.String(),
+			Reference:       withdrawal.Ref,
+			Type:            withdrawal.Recipient.Type,
+			Currency:        req.Currency,
+			Amount:          amount,
+			Fee:             0,
+			Total:           amount,
+			TransactionID:   id.String(),
+			TransactionNote: withdrawal.TransactionNote,
+			Narration:       withdrawal.Narration,
+			Status:          withdrawal.Status,
+			CreatedAt:       now,
+			DoneAt:          now,
+			Recipient:       withdrawal.Recipient,
+			Wallet:          wallet.Data,
+			User:            wallet.Data.User,
+		},
+	}, nil
+}
+
+func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.FetchWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error) {
+	user, err := w.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
+	if err != nil {
+		return nil, err
+	}
+
+	stmt := sq.
+		Select(
+			"withdrawals.id", "withdrawals.ref", "withdrawals.transaction_note",
+			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
+			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
+
+			"sender.id", "sender.sn", "sender.display_name", "sender.email", "sender.first_name",
+			"sender.last_name", "sender.callback_url", "sender.created_at", "sender.updated_at",
+
+			"wallets.id", "wallets.token",
+		).
+		From("withdrawals").
+		Join("accounts as sender on withdrawals.account_id = sender.id").
+		Join("wallets on withdrawals.wallet_id = wallets.id").
+		Join("accounts as recipient on withdrawals.recipient_details_destination_tag = recipient.id").
+		Where(sq.Or{sq.Eq{"withdrawals.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
+
+	switch "" {
+	case req.Reference:
+		stmt = stmt.Where(sq.Eq{"withdrawals.id": req.WithdrawalID})
+	case req.WithdrawalID:
+		stmt = stmt.Where(sq.Eq{"withdrawals.ref": req.Reference})
+	default:
+		panic("unreachable")
+	}
+
+	row := stmt.RunWith(w.dataDB).QueryRowContext(ctx)
+
+	withdrawal := &responses.WithdrawalResponseData{
+		Recipient: &models.Recipient{
+			Details: &models.RecipientDetails{},
+		},
+		Wallet: &responses.UserWalletResponseData{},
+		User:   &models.Account{},
+	}
+	err = row.Scan(
+		&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionNote,
+		&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
+		&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
+
+		&withdrawal.User.ID, &withdrawal.User.SN, &withdrawal.User.DisplayName, &withdrawal.User.Email, &withdrawal.User.FirstName,
+		&withdrawal.User.LastName, &withdrawal.User.CallbackURL, &withdrawal.User.CreatedAt, &withdrawal.User.UpdatedAt,
+
+		&withdrawal.Wallet.ID, &withdrawal.Wallet.Currency,
+	)
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
+
+	data, err := w.populateWithdrawals(ctx, map[string]*responses.WithdrawalResponseData{withdrawal.ID: withdrawal}, user.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) != 1 {
+		return nil, errors.NewNotFoundError("withdrawal not found")
+	}
+
+	return &responses.Response[*responses.WithdrawalResponseData]{
+		Status: "successful",
+		Data:   data[0],
+	}, nil
+}
+
+func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.FetchWithdrawalsRequest) (*responses.Response[[]*responses.WithdrawalResponseData], error) {
+	user, err := w.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
+	if err != nil {
+		return nil, err
+	}
+
+	stmt := sq.
+		Select(
+			"withdrawals.id", "withdrawals.ref", "withdrawals.transaction_note",
+			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
+			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
+
+			"sender.id", "sender.sn", "sender.display_name", "sender.email", "sender.first_name",
+			"sender.last_name", "sender.callback_url", "sender.created_at", "sender.updated_at",
+
+			"wallets.id", "wallets.token",
+		).
+		From("withdrawals").
+		Join("accounts as sender on withdrawals.account_id = sender.id").
+		Join("wallets on withdrawals.wallet_id = wallets.id").
+		Join("accounts as recipient on withdrawals.recipient_details_destination_tag = recipient.id").
+		Where(sq.Or{sq.Eq{"withdrawals.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
+
+	if req.State != nil {
+		stmt = stmt.Where(sq.Eq{"withdrawals.state": *req.State})
+	}
+	if req.Currency != nil {
+		stmt = stmt.Where(sq.Eq{"wallets.token": *req.Currency})
+	}
+
+	rows, err := stmt.RunWith(w.dataDB).QueryContext(ctx)
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
+	withdrawals := map[string]*responses.WithdrawalResponseData{}
+	for rows.Next() {
+		withdrawal := &responses.WithdrawalResponseData{
+			Recipient: &models.Recipient{
+				Details: &models.RecipientDetails{},
+			},
+			Wallet: &responses.UserWalletResponseData{},
+			User:   &models.Account{},
+		}
+		err = rows.Scan(
+			&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionNote,
+			&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
+			&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
+	
+			&withdrawal.User.ID, &withdrawal.User.SN, &withdrawal.User.DisplayName, &withdrawal.User.Email, &withdrawal.User.FirstName,
+			&withdrawal.User.LastName, &withdrawal.User.CallbackURL, &withdrawal.User.CreatedAt, &withdrawal.User.UpdatedAt,
+	
+			&withdrawal.Wallet.ID, &withdrawal.Wallet.Currency,
+		)
+		if err != nil {
+			return nil, errors.HandleDataDBError(err)
+		}
+		withdrawals[withdrawal.ID] = withdrawal
+	}
+
+	data, err := w.populateWithdrawals(ctx, withdrawals, user.Data)
+	if err != nil {
+		return nil, err
+	}
+
+	return &responses.Response[[]*responses.WithdrawalResponseData]{
+		Data: data,
+	}, nil
+}
+
+func (w *withdrawalService) populateWithdrawals(ctx context.Context, withdrawals map[string]*responses.WithdrawalResponseData, user *models.Account) ([]*responses.WithdrawalResponseData, error) {
+	walletIds := make([]string, 0)
+	transferIds := make([]tdb_types.Uint128, 0)
+
+	for _, withdrawal := range withdrawals {
+		walletIds = append(walletIds, withdrawal.Wallet.ID)
+		txId, err := tdb_types.HexStringToUint128(withdrawal.ID)
+		if err != nil {
+			return nil, err
+		}
+		transferIds = append(transferIds, txId)
+	}
+
+	wallets, err := w.walletService.LookupWallets(ctx, walletIds)
+	if err != nil {
+		return nil, err
+	}
+	withdrawalTxs, err := w.transactionDB.LookupTransfers(transferIds)
+	if err != nil {
+		return nil, errors.HandleTxDBError(err)
+	}
+
+	data := make([]*responses.WithdrawalResponseData, 0)
+	for _, tx := range withdrawalTxs {
+		withdrawal := withdrawals[tx.ID.String()]
+		wallet := wallets[withdrawal.Wallet.ID]
+
+		amount := tx.Amount.BigInt()
+		withdrawal.Wallet = wallet
+		withdrawal.Amount = utils.ApproximateAmount(Ledgers[tx.Ledger], float64(float32(amount.Uint64()))*1e-9)
+		withdrawal.Currency = Ledgers[tx.Ledger]
+		withdrawal.Type = withdrawal.Recipient.Type
+		withdrawal.Fee = 0
+		withdrawal.Total = withdrawal.Amount
+		withdrawal.CreatedAt = time.UnixMicro(int64(tx.Timestamp / 1000))
+		withdrawal.DoneAt = withdrawal.CreatedAt
+
+		switch {
+		case withdrawal.User.ID == user.ID:
+		case withdrawal.User.ParentID != nil && *withdrawal.User.ParentID == user.ID:
+		case withdrawal.User.ParentID != nil && user.ParentID != nil && *withdrawal.User.ParentID == *user.ParentID:
+		default:
+			withdrawal.User = &models.Account{
+				ID:          withdrawal.User.ID,
+				ParentID:    withdrawal.User.ParentID,
+				FirstName:   withdrawal.User.FirstName,
+				LastName:    withdrawal.User.LastName,
+				DisplayName: withdrawal.User.DisplayName,
+			}
+			withdrawal.Wallet = nil
+		}
+
+		data = append(data, withdrawal)
+	}
+
+	return data, nil
+}

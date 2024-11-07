@@ -17,7 +17,7 @@ var Validator = NewStructValidator()
 var queryBinder = schema.NewDecoder()
 
 func init() {
-	queryBinder.SetAliasTag("form")
+	queryBinder.SetAliasTag("query")
 	queryBinder.IgnoreUnknownKeys(true)
 }
 
@@ -34,7 +34,7 @@ func NewStructValidator() *structValidator {
 
 	v.validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
 		var name string
-		if tag, ok := fld.Tag.Lookup("form"); ok {
+		if tag, ok := fld.Tag.Lookup("query"); ok {
 			name = strings.SplitN(tag, ",", 2)[0]
 		} else {
 			name = strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
@@ -93,13 +93,22 @@ func Bind(r *http.Request, data any) error {
 	if err != nil {
 		return err
 	}
+	if err = r.ParseForm(); err != nil {
+		return err
+	}
 	err = queryBinder.Decode(data, r.Form)
 	if err != nil {
 		return err
 	}
-	err = json.NewDecoder(r.Body).Decode(data)
+	bodyData, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
+	}
+	if len(bodyData) > 0 {
+		err = json.Unmarshal(bodyData, data)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = Validator.Validate(data)

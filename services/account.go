@@ -112,7 +112,7 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 				History: true,
 				// * allow debits to exceed credits for main account
 				// ?todo: undo later and use system transaction account to monitor amount of value in circulation at a quick glance
-				// DebitsMustNotExceedCredits: true,
+				DebitsMustNotExceedCredits: true,
 				Linked: len(wallets) < (len(Ledgers) - 1),
 			}.ToUint16(),
 			Ledger:      ledgerId,
@@ -173,7 +173,11 @@ func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.
 	case "me":
 		stmt = stmt.Where(sq.Eq{"is_main_account": true, "id": parent.ID})
 	default:
-		stmt = stmt.Where(sq.Eq{"id": req.UserID, "parent_id": parent.ID})
+		if ctx.Value("skip_check") == nil {
+			stmt = stmt.Where(sq.Eq{"id": req.UserID, "parent_id": parent.ID})
+		} else {
+			stmt = stmt.Where(sq.Eq{"id": req.UserID})
+		}
 	}
 
 	row := stmt.

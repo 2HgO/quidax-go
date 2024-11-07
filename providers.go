@@ -5,16 +5,27 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/2HgO/quidax-go/handlers"
+	gHandlers "github.com/gorilla/handlers"
 	"go.uber.org/fx"
 )
 
 func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux) *http.Server {
+	opts := []gHandlers.CORSOption{
+		gHandlers.AllowCredentials(),
+		gHandlers.AllowedHeaders([]string{"keep-alive", "user-agent", "cache-control", "authorization", "content-type", "content-transfer-encoding", "x-accept-content-transfer-encoding", "x-accept-response-streaming", "x-user-agent", "referer", "x-trace-id", "origin", "x-requested-with"}),
+		gHandlers.AllowedMethods([]string{"GET", "PUT", "DELETE", "POST", "PATCH", "OPTIONS"}),
+		gHandlers.AllowedOrigins([]string{"*"}),
+		gHandlers.ExposedHeaders([]string{"x-envoy-upstream-service-time", "x-total-count", "x-page-number", "x-per-page"}),
+		gHandlers.MaxAge(1728000),
+	}
 	srv := &http.Server{
 		Addr:         ":80",
-		Handler:      mux,
+		// todo: handler request logger manually
+		Handler:      gHandlers.CORS(opts...)(handlers.RecoveryMW(gHandlers.CombinedLoggingHandler(os.Stderr, mux))),
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,

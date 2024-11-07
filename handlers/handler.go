@@ -8,9 +8,11 @@ import (
 )
 
 type handler struct {
-	accountService services.AccountService
-	walletService  services.WalletService
-	middlewares    MiddleWareHandler
+	accountService    services.AccountService
+	walletService     services.WalletService
+	swapService       services.InstantSwapService
+	withdrawalService services.WithdrawalService
+	middlewares       MiddleWareHandler
 
 	log *zap.Logger
 }

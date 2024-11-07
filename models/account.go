@@ -10,7 +10,7 @@ type Account struct {
 	Email       string    `json:"email"`
 	FirstName   string    `json:"first_name"`
 	LastName    string    `json:"last_name"`
-	CallbackURL string    `json:"callback_url"`
+	CallbackURL *string    `json:"callback_url"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 
@@ -18,5 +18,5 @@ type Account struct {
 	IsMainAccount bool    `json:"-"`
 	// ? maybe change to uuid.UUID
 	ParentID      *string `json:"-"`
-	Password      string  `json:"-"`
+	Password      *string  `json:"-"`
 }
