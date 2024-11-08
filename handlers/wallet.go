@@ -33,11 +33,7 @@ func (ws *walletHandler) ServeHttp(mux *http.ServeMux) {
 }
 
 func (ws *walletHandler) FetchUserWallet(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchUserWalletRequest{UserID: r.PathValue("user_id"), Currency: r.PathValue("currency")}
-	if err := utils.Bind(r, req); err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.FetchUserWalletRequest](r)
 
 	res, err := ws.walletService.FetchUserWallet(r.Context(), req)
 	if err != nil {
@@ -49,11 +45,7 @@ func (ws *walletHandler) FetchUserWallet(w http.ResponseWriter, r *http.Request)
 }
 
 func (ws *walletHandler) FetchUserWallets(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchUserWalletsRequest{UserID: r.PathValue("user_id")}
-	if err := utils.Bind(r, req); err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.FetchUserWalletsRequest](r)
 
 	res, err := ws.walletService.FetchUserWallets(r.Context(), req)
 	if err != nil {

@@ -166,10 +166,7 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
 			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
 
-			"sender.id", "sender.sn", "sender.display_name", "sender.email", "sender.first_name",
-			"sender.last_name", "sender.callback_url", "sender.created_at", "sender.updated_at",
-
-			"wallets.id", "wallets.token",
+			"wallets.id",
 		).
 		From("withdrawals").
 		Join("accounts as sender on withdrawals.account_id = sender.id").
@@ -200,15 +197,11 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 		&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
 		&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
 
-		&withdrawal.User.ID, &withdrawal.User.SN, &withdrawal.User.DisplayName, &withdrawal.User.Email, &withdrawal.User.FirstName,
-		&withdrawal.User.LastName, &withdrawal.User.CallbackURL, &withdrawal.User.CreatedAt, &withdrawal.User.UpdatedAt,
-
-		&withdrawal.Wallet.ID, &withdrawal.Wallet.Currency,
+		&withdrawal.Wallet.ID,
 	)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
 	}
-
 
 	data, err := w.populateWithdrawals(ctx, map[string]*responses.WithdrawalResponseData{withdrawal.ID: withdrawal}, user.Data)
 	if err != nil {
@@ -237,10 +230,7 @@ func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.
 			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
 			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
 
-			"sender.id", "sender.sn", "sender.display_name", "sender.email", "sender.first_name",
-			"sender.last_name", "sender.callback_url", "sender.created_at", "sender.updated_at",
-
-			"wallets.id", "wallets.token",
+			"wallets.id",
 		).
 		From("withdrawals").
 		Join("accounts as sender on withdrawals.account_id = sender.id").
@@ -273,11 +263,8 @@ func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.
 			&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionNote,
 			&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
 			&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
-	
-			&withdrawal.User.ID, &withdrawal.User.SN, &withdrawal.User.DisplayName, &withdrawal.User.Email, &withdrawal.User.FirstName,
-			&withdrawal.User.LastName, &withdrawal.User.CallbackURL, &withdrawal.User.CreatedAt, &withdrawal.User.UpdatedAt,
-	
-			&withdrawal.Wallet.ID, &withdrawal.Wallet.Currency,
+
+			&withdrawal.Wallet.ID,
 		)
 		if err != nil {
 			return nil, errors.HandleDataDBError(err)
@@ -324,6 +311,7 @@ func (w *withdrawalService) populateWithdrawals(ctx context.Context, withdrawals
 
 		amount := tx.Amount.BigInt()
 		withdrawal.Wallet = wallet
+		withdrawal.User = wallet.User
 		withdrawal.Amount = utils.ApproximateAmount(Ledgers[tx.Ledger], float64(float32(amount.Uint64()))*1e-9)
 		withdrawal.Currency = Ledgers[tx.Ledger]
 		withdrawal.Type = withdrawal.Recipient.Type

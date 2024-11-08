@@ -37,11 +37,7 @@ func (i *instantSwapHandler) ServeHttp(mux *http.ServeMux) {
 }
 
 func (i *instantSwapHandler) CreateInstantSwap(w http.ResponseWriter, r *http.Request) {
-	var req = &requests.CreateInstantSwapRequest{UserID: r.PathValue("user_id")}
-	if err := utils.Bind(r, req); err != nil {
-		errors.AsAppError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.CreateInstantSwapRequest](r)
 
 	res, err := i.swapService.CreateInstantSwap(r.Context(), req)
 	if err != nil {
@@ -53,7 +49,7 @@ func (i *instantSwapHandler) CreateInstantSwap(w http.ResponseWriter, r *http.Re
 }
 
 func (i *instantSwapHandler) ConfirmInstantSwap(w http.ResponseWriter, r *http.Request) {
-	var req = &requests.ConfirmInstanSwapRequest{UserID: r.PathValue("user_id"), QuotationID: r.PathValue("quotation_id")}
+	req := utils.Bind[requests.ConfirmInstanSwapRequest](r)
 
 	res, err := i.swapService.ConfirmInstantSwap(r.Context(), req)
 	if err != nil {
@@ -65,7 +61,7 @@ func (i *instantSwapHandler) ConfirmInstantSwap(w http.ResponseWriter, r *http.R
 }
 
 func (i *instantSwapHandler) FetchInstantSwapTransaction(w http.ResponseWriter, r *http.Request) {
-	var req = &requests.FetchInstantSwapTransactionRequest{UserID: r.PathValue("user_id"), SwapTransactionID: r.PathValue("swap_transaction_id")}
+	req := utils.Bind[requests.FetchInstantSwapTransactionRequest](r)
 
 	res, err := i.swapService.FetchInstantSwapTransaction(r.Context(), req)
 	if err != nil {
@@ -77,7 +73,7 @@ func (i *instantSwapHandler) FetchInstantSwapTransaction(w http.ResponseWriter, 
 }
 
 func (i *instantSwapHandler) GetInstantSwapTransactions(w http.ResponseWriter, r *http.Request) {
-	var req = &requests.GetInstantSwapTransactionsRequest{UserID: r.PathValue("user_id")}
+	req := utils.Bind[requests.GetInstantSwapTransactionsRequest](r)
 
 	res, err := i.swapService.GetInstantSwapTransactions(r.Context(), req)
 	if err != nil {

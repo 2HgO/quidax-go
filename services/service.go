@@ -13,6 +13,8 @@ type service struct {
 	accountService AccountService
 	swapService    InstantSwapService
 	walletService  WalletService
+	webhookService WebhookService
+	scheduler      SchedulerService
 	log            *zap.Logger
 }
 

@@ -10,8 +10,8 @@ import (
 	"runtime/debug"
 
 	"github.com/go-playground/validator/v10"
-	_ "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 	_ "github.com/tigerbeetle/tigerbeetle-go/pkg/errors"
+	_ "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 )
 
 type ErrorType string
@@ -69,13 +69,21 @@ func HandleTxDBError(err error) AppError {
 }
 
 func HandleBindError(err error) AppError {
+	if errors.As(err, &AppError{}) {
+		return AsAppError(err)
+	}
+
 	if v, ok := err.(validator.ValidationErrors); ok {
 		var message string
 		switch v[0].ActualTag() {
 		case "required":
 			message = fmt.Sprintf("%s is requried", v[0].Field())
+		case "required_without":
+			message = fmt.Sprintf("%s is requried when %s is not provided", v[0].Field(), v[0].Param())
 		case "oneof":
 			message = fmt.Sprintf("%s must be one of values: (%s), value received: %s", v[0].Field(), v[0].Param(), v[0].Value())
+		case "gt":
+			message = fmt.Sprintf("%s must be greater than (%s), value received: %s", v[0].Field(), v[0].Param(), v[0].Value())
 		default:
 			message = fmt.Sprintf("Validation failed on field { %s }, Condition: %s", v[0].Field(), v[0].ActualTag())
 			if v[0].Param() != "" {
@@ -159,9 +167,9 @@ func NewUnknownError(err any) AppError {
 
 func NewFailedDependencyError(msg string) AppError {
 	return AppError{
-		Code:     http.StatusFailedDependency,
-		Type:     ErrFailedDependency,
-		Message:  msg,
+		Code:    http.StatusFailedDependency,
+		Type:    ErrFailedDependency,
+		Message: msg,
 	}
 }
 

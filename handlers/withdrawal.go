@@ -37,12 +37,7 @@ func (wd *withdrawalHandler) ServeHttp(mux *http.ServeMux) {
 }
 
 func (wd *withdrawalHandler) CreateWithdrawal(w http.ResponseWriter, r *http.Request) {
-	req := &requests.CreateWithdrawalRequest{UserID: r.PathValue("user_id")}
-	err := utils.Bind(r, req)
-	if err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.CreateWithdrawalRequest](r)
 
 	res, err := wd.withdrawalService.CreateUserWithdrawal(r.Context(), req)
 	if err != nil {
@@ -53,7 +48,7 @@ func (wd *withdrawalHandler) CreateWithdrawal(w http.ResponseWriter, r *http.Req
 	utils.JSON(w, 201, res)
 }
 func (wd *withdrawalHandler) FetchWithdrawal(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchWithdrawalRequest{UserID: r.PathValue("user_id"), WithdrawalID: r.PathValue("withdrawal_id")}
+	req := utils.Bind[requests.FetchWithdrawalRequest](r)
 
 	res, err := wd.withdrawalService.FetchWithdrawal(r.Context(), req)
 	if err != nil {
@@ -64,7 +59,7 @@ func (wd *withdrawalHandler) FetchWithdrawal(w http.ResponseWriter, r *http.Requ
 	utils.JSON(w, 200, res)
 }
 func (wd *withdrawalHandler) FetchWithdrawalByRef(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchWithdrawalRequest{UserID: r.PathValue("user_id"), Reference: r.PathValue("reference")}
+	req := utils.Bind[requests.FetchWithdrawalRequest](r)
 
 	res, err := wd.withdrawalService.FetchWithdrawal(r.Context(), req)
 	if err != nil {
@@ -76,11 +71,7 @@ func (wd *withdrawalHandler) FetchWithdrawalByRef(w http.ResponseWriter, r *http
 }
 
 func (wd *withdrawalHandler) FetchWithdrawals(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchWithdrawalsRequest{UserID: r.PathValue("user_id")}
-	if err := utils.Bind(r, req); err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.FetchWithdrawalsRequest](r)
 
 	res, err := wd.withdrawalService.FetchWithdrawals(r.Context(), req)
 	if err != nil {

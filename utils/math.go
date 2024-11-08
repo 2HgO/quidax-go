@@ -1,6 +1,10 @@
 package utils
 
-import "math"
+import (
+	"math"
+
+	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
+)
 
 func ApproximateAmount(currency string, amount float64) float64 {
 	switch currency {
@@ -15,4 +19,13 @@ func ApproximateAmount(currency string, amount float64) float64 {
 	default:
 		return math.Floor(amount*100) / 100
 	}
+}
+
+func ToAmount(val float64) tdb_types.Uint128 {
+	return tdb_types.ToUint128(uint64(math.Floor(val * 1e9)))
+}
+
+func FromAmount(amount tdb_types.Uint128) float64 {
+	val := amount.BigInt()
+	return float64(val.Uint64()) * 1e-9
 }

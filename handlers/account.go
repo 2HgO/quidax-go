@@ -44,12 +44,7 @@ func (a *accountHandler) ServeHttp(mux *http.ServeMux) {
 }
 
 func (a *accountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
-	req := new(requests.CreateAccountRequest)
-	err := utils.Bind(r, req)
-	if err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.CreateAccountRequest](r)
 
 	res, err := a.accountService.CreateAccount(r.Context(), req)
 	if err != nil {
@@ -61,14 +56,9 @@ func (a *accountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *accountHandler) UpdateWebHookURL(w http.ResponseWriter, r *http.Request) {
-	req := new(requests.UpdateWebhookURLRequest)
-	err := utils.Bind(r, req)
-	if err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.UpdateWebhookURLRequest](r)
 
-	err = a.accountService.UpdateWebHookURL(r.Context(), req)
+	err := a.accountService.UpdateWebHookURL(r.Context(), req)
 	if err != nil {
 		errors.AsAppError(err).Serialize(w)
 		return
@@ -79,7 +69,7 @@ func (a *accountHandler) UpdateWebHookURL(w http.ResponseWriter, r *http.Request
 }
 
 func (a *accountHandler) FetchAccountDetails(w http.ResponseWriter, r *http.Request) {
-	req := &requests.FetchAccountDetailsRequest{UserID: r.PathValue("user_id")}
+	req := utils.Bind[requests.FetchAccountDetailsRequest](r)
 
 	res, err := a.accountService.FetchAccountDetails(r.Context(), req)
 	if err != nil {
@@ -91,12 +81,7 @@ func (a *accountHandler) FetchAccountDetails(w http.ResponseWriter, r *http.Requ
 }
 
 func (a *accountHandler) CreateSubAccount(w http.ResponseWriter, r *http.Request) {
-	req := new(requests.CreateSubAccountRequest)
-	err := utils.Bind(r, req)
-	if err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.CreateSubAccountRequest](r)
 
 	res, err := a.accountService.CreateSubAccount(r.Context(), req)
 	if err != nil {
@@ -108,12 +93,7 @@ func (a *accountHandler) CreateSubAccount(w http.ResponseWriter, r *http.Request
 }
 
 func (a *accountHandler) EditSubAccountDetails(w http.ResponseWriter, r *http.Request) {
-	req := &requests.EditSubAccountDetailsRequest{UserID: r.PathValue("user_id")}
-	err := utils.Bind(r, req)
-	if err != nil {
-		errors.HandleBindError(err).Serialize(w)
-		return
-	}
+	req := utils.Bind[requests.EditSubAccountDetailsRequest](r)
 
 	res, err := a.accountService.EditSubAccountDetails(r.Context(), req)
 	if err != nil {
@@ -125,7 +105,9 @@ func (a *accountHandler) EditSubAccountDetails(w http.ResponseWriter, r *http.Re
 }
 
 func (a *accountHandler) FetchAllSubAccounts(w http.ResponseWriter, r *http.Request) {
-	res, err := a.accountService.FetchAllSubAccounts(r.Context(), &requests.FetchAllSubAccountsRequest{})
+	req := utils.Bind[requests.FetchAllSubAccountsRequest](r)
+
+	res, err := a.accountService.FetchAllSubAccounts(r.Context(), req)
 	if err != nil {
 		errors.AsAppError(err).Serialize(w)
 		return

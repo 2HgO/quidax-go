@@ -1,7 +1,7 @@
 package requests
 
 type CreateWithdrawalRequest struct {
-	UserID          string  `uri:"user_id"`
+	UserID          string  `uri:"user_id" validate:"required"`
 	FundUid         string  `json:"fund_uid" validate:"required"`
 	Currency        string  `json:"currency" validate:"required,oneof=ngn usdt usdc eth bnb sol btc"`
 	Amount          float64 `json:"amount,string" validate:"required,gt=0"`

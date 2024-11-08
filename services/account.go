@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/2HgO/quidax-go/models"
 	"github.com/2HgO/quidax-go/types/requests"
 	"github.com/2HgO/quidax-go/types/responses"
+	"github.com/2HgO/quidax-go/utils"
 )
 
 type AccountService interface {
@@ -57,8 +59,8 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 		Email:       strings.ToLower(req.Email),
 		FirstName:   strings.ToTitle(req.FirstName),
 		LastName:    strings.ToTitle(req.LastName),
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
 	}
 	password, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -109,25 +111,14 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 		wallets = append(wallets, tdb_types.Account{
 			ID: tdb_types.ID(),
 			Flags: tdb_types.AccountFlags{
-				History: true,
-				// * allow debits to exceed credits for main account
-				// ?todo: undo later and use system transaction account to monitor amount of value in circulation at a quick glance
+				History:                    true,
 				DebitsMustNotExceedCredits: true,
-				Linked: len(wallets) < (len(Ledgers) - 1),
+				Linked:                     len(wallets) < (len(Ledgers) - 1),
 			}.ToUint16(),
 			Ledger:      ledgerId,
 			Code:        1,
 			UserData128: tdb_types.BytesToUint128(accountID),
 		})
-	}
-
-	// * create wallet accounts in financial transaction database
-	txRes, err := a.transactionDB.CreateAccounts(wallets)
-	if err != nil {
-		return nil, errors.HandleTxDBError(err)
-	}
-	if len(txRes) > 0 {
-		return nil, errors.NewUnknownError(txRes[0].Result.String())
 	}
 
 	// * store wallets ref in wallets collection
@@ -144,6 +135,35 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 		ExecContext(ctx)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
+	}
+
+	// * create wallet accounts in financial transaction database
+	txRes, err := a.transactionDB.CreateAccounts(wallets)
+	if err != nil {
+		return nil, errors.HandleTxDBError(err)
+	}
+	if len(txRes) > 0 {
+		return nil, errors.NewUnknownError(txRes[0].Result.String())
+	}
+
+	// ! seed main account with 9999 credit
+	seed := []tdb_types.Transfer{}
+	for _, wallet := range wallets {
+		seed = append(seed, tdb_types.Transfer{
+			ID:              tdb_types.ID(),
+			CreditAccountID: wallet.ID,
+			DebitAccountID:  tdb_types.ToUint128(uint64(wallet.Ledger)),
+			Ledger:          wallet.Ledger,
+			Code:            3,
+			Amount:          utils.ToAmount(9999),
+		})
+	}
+	seedRes, err := a.transactionDB.CreateTransfers(seed)
+	if err != nil {
+		a.log.Error("attempting to see main account", zap.Error(err))
+	}
+	for _, s := range seedRes {
+		a.log.Error("attempting to see main account", zap.String(fmt.Sprintf("errorType[%d]", s.Index), s.Result.String()))
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -250,8 +270,8 @@ func (a *accountService) CreateSubAccount(ctx context.Context, req *requests.Cre
 		FirstName:   strings.ToTitle(req.FirstName),
 		LastName:    strings.ToTitle(req.LastName),
 		ParentID:    &parent.ID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
 	}
 
 	tx, err := a.dataDB.BeginTx(ctx, nil)
@@ -331,7 +351,8 @@ func (a *accountService) EditSubAccountDetails(ctx context.Context, req *request
 	}
 
 	stmt := sq.
-		Update("accounts")
+		Update("accounts").
+		Set("updated_at", time.Now())
 
 	if req.FirstName != "" {
 		stmt = stmt.Set("first_name", req.FirstName)

@@ -6,6 +6,7 @@ import (
 	"github.com/2HgO/quidax-go/db"
 	"github.com/2HgO/quidax-go/handlers"
 	"github.com/2HgO/quidax-go/services"
+	"github.com/madflojo/tasks"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -42,9 +43,12 @@ func main() {
 			services.NewInstantSwapService,
 			services.NewWithdrawalService,
 			services.NewWalletService,
+			services.NewWebhookService,
+			services.NewSchedulerService,
 			services.NewAccountService,
 			db.GetDataDBConnection,
 			db.GetTxDBConnection,
+			tasks.New,
 			zap.NewProduction,
 		),
 		fx.Invoke(func(*http.Server) {}),

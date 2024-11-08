@@ -54,7 +54,7 @@ func RecoveryMW(h http.Handler) http.Handler {
 				case error:
 					errors.AsAppError(rErr).Serialize(w)
 				default:
-					errors.NewUnknownError(err)
+					errors.NewUnknownError(err).Serialize(w)
 				}
 			}
 		}()

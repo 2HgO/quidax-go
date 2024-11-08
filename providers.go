@@ -5,15 +5,20 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/2HgO/quidax-go/handlers"
+	"github.com/MadAppGang/httplog"
+	lzap "github.com/MadAppGang/httplog/zap"
 	gHandlers "github.com/gorilla/handlers"
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
-func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux) *http.Server {
+func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux, log *zap.Logger) *http.Server {
+	config := httplog.LoggerConfig{
+		Formatter: lzap.ZapLogger(log, zap.InfoLevel, "quidax-go"),
+	}
 	opts := []gHandlers.CORSOption{
 		gHandlers.AllowCredentials(),
 		gHandlers.AllowedHeaders([]string{"keep-alive", "user-agent", "cache-control", "authorization", "content-type", "content-transfer-encoding", "x-accept-content-transfer-encoding", "x-accept-response-streaming", "x-user-agent", "referer", "x-trace-id", "origin", "x-requested-with"}),
@@ -23,9 +28,9 @@ func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux) *http.Server {
 		gHandlers.MaxAge(1728000),
 	}
 	srv := &http.Server{
-		Addr:         ":80",
+		Addr: ":55059",
 		// todo: handler request logger manually
-		Handler:      gHandlers.CORS(opts...)(handlers.RecoveryMW(gHandlers.CombinedLoggingHandler(os.Stderr, mux))),
+		Handler:      gHandlers.CORS(opts...)(handlers.RecoveryMW(httplog.LoggerWithConfig(config)(mux))),
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,

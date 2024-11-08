@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/url"
 	"reflect"
 	"strings"
 
+	"github.com/2HgO/quidax-go/errors"
 	"github.com/creasty/defaults"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/schema"
@@ -36,6 +36,8 @@ func NewStructValidator() *structValidator {
 		var name string
 		if tag, ok := fld.Tag.Lookup("query"); ok {
 			name = strings.SplitN(tag, ",", 2)[0]
+		} else if tag, ok := fld.Tag.Lookup("uri"); ok {
+			name = strings.SplitN(tag, ",", 2)[0]
 		} else {
 			name = strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
 		}
@@ -45,76 +47,59 @@ func NewStructValidator() *structValidator {
 	return v
 }
 
-func BindBody[T any](body io.Reader, data T) (T, error) {
-	err := defaults.Set(&data)
-	if err != nil {
-		return data, err
+func bindUri(r *http.Request, data any) error {
+	t := reflect.TypeOf(data)
+	switch {
+	case t.Kind() != reflect.Pointer,
+		t.Elem().Kind() != reflect.Struct:
+		return errors.NewValidationError("invalid data type")
 	}
-
-	err = json.NewDecoder(body).Decode(&data)
-	if err != nil {
-		return data, err
+	fields := reflect.VisibleFields(t.Elem())
+	for _, field := range fields {
+		if !field.IsExported() || field.Type.Kind() != reflect.String {
+			continue
+		}
+		if key, ok := field.Tag.Lookup("uri"); ok {
+			reflect.Indirect(reflect.ValueOf(data)).FieldByName(field.Name).SetString(r.PathValue(key))
+		}
 	}
-
-	err = Validator.Validate(data)
-	if err != nil {
-		return data, err
-	}
-
-	return data, nil
+	return nil
 }
 
-func BindQuery[T any](form url.Values, data T) (T, error) {
-	err := defaults.Set(&data)
-	if err != nil {
-		return data, err
+func Bind[T any](r *http.Request) *T {
+	if reflect.TypeFor[T]().Kind() != reflect.Struct {
+		panic(errors.NewValidationError("invalid request type"))
 	}
-
-	err = queryBinder.Decode(&data, form)
-	if err != nil {
-		return data, err
-	}
-
-	err = Validator.Validate(data)
-	if err != nil {
-		return data, err
-	}
-
-	return data, nil
-}
-
-func BindUri[T any](r *http.Request) (T, error) {
-	var data T
-	return data, nil
-}
-
-func Bind(r *http.Request, data any) error {
+	data := new(T)
 	err := defaults.Set(data)
 	if err != nil {
-		return err
+		panic(errors.HandleBindError(err))
+	}
+	if err = bindUri(r, data); err != nil {
+		panic(errors.HandleBindError(err))
 	}
 	if err = r.ParseForm(); err != nil {
-		return err
+		panic(errors.HandleBindError(err))
 	}
 	err = queryBinder.Decode(data, r.Form)
 	if err != nil {
-		return err
+		panic(errors.HandleBindError(err))
 	}
 	bodyData, err := io.ReadAll(r.Body)
 	if err != nil {
-		return err
+		panic(errors.HandleBindError(err))
 	}
 	if len(bodyData) > 0 {
 		err = json.Unmarshal(bodyData, data)
 		if err != nil {
-			return err
+			panic(errors.HandleBindError(err))
 		}
 	}
 
 	err = Validator.Validate(data)
 	if err != nil {
-		return err
+		panic(errors.HandleBindError(err))
 	}
 
-	return nil
+	return data
 }
