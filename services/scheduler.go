@@ -76,14 +76,11 @@ func (s *schedulerService) ScheduleInstantSwapReversal(parent, user *models.Acco
 					ID:              tdb_types.ID(),
 					CreditAccountID: transactions[0].CreditAccountID,
 					DebitAccountID:  transactions[0].DebitAccountID,
-					// Amount:          transactions[0].Amount,
-					Amount:      tdb_types.ToUint128(0),
-					Ledger:      transactions[0].Ledger,
-					UserData128: transactions[0].UserData128,
-					UserData64:  ref.Uint64(),
-					UserData32:  transactions[0].UserData32,
-					PendingID:   transactions[0].ID,
-					Code:        1,
+					Ledger:          transactions[0].Ledger,
+					UserData128:     transactions[0].UserData128,
+					UserData64:      ref.Uint64(),
+					PendingID:       transactions[0].ID,
+					Code:            1,
 					Flags: tdb_types.TransferFlags{
 						Linked:              true,
 						VoidPendingTransfer: true,
@@ -93,14 +90,11 @@ func (s *schedulerService) ScheduleInstantSwapReversal(parent, user *models.Acco
 					ID:              tdb_types.ID(),
 					CreditAccountID: transactions[1].CreditAccountID,
 					DebitAccountID:  transactions[1].DebitAccountID,
-					// Amount:          transactions[1].Amount,
-					Amount:      tdb_types.ToUint128(0),
-					Ledger:      transactions[1].Ledger,
-					UserData128: transactions[1].UserData128,
-					UserData64:  ref.Uint64(),
-					UserData32:  transactions[1].UserData32,
-					PendingID:   transactions[1].ID,
-					Code:        1,
+					Ledger:          transactions[1].Ledger,
+					UserData128:     transactions[1].UserData128,
+					UserData64:      ref.Uint64(),
+					PendingID:       transactions[1].ID,
+					Code:            1,
 					Flags: tdb_types.TransferFlags{
 						VoidPendingTransfer: true,
 					}.ToUint16(),
@@ -120,16 +114,16 @@ func (s *schedulerService) ScheduleInstantSwapReversal(parent, user *models.Acco
 				return nil
 			}
 
-			fromAmount := transactions[0].Amount.BigInt()
-			toAmount := transactions[1].Amount.BigInt()
+			fromAmount := utils.FromAmount(transactions[0].Amount)
+			toAmount := utils.FromAmount(transactions[1].Amount)
 			now := time.Now()
 			data := &responses.InstantSwapResponseData{
 				ID:             tdb_types.ToUint128(ref.Uint64()).String(),
 				FromCurrency:   Ledgers[transactions[0].Ledger],
 				ToCurrency:     Ledgers[transactions[1].Ledger],
-				ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[0].Ledger], float64(float32(transactions[0].UserData32))*1e-9),
-				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], float64(fromAmount.Uint64())*1e-9),
-				ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], float64(toAmount.Uint64())*1e-9),
+				ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
+				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
+				ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 				CreatedAt:      now,
 				UpdatedAt:      now,
 				User:           user,
@@ -138,10 +132,10 @@ func (s *schedulerService) ScheduleInstantSwapReversal(parent, user *models.Acco
 					ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
 					FromCurrency:   Ledgers[transactions[0].Ledger],
 					ToCurrency:     Ledgers[transactions[1].Ledger],
-					QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[0].Ledger], float64(float32(transactions[0].UserData32))*1e-9),
+					QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
 					QuotedCurrency: Ledgers[transactions[0].Ledger],
-					FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], float64(fromAmount.Uint64())*1e-9),
-					ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], float64(toAmount.Uint64())*1e-9),
+					FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
+					ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 					Confirmed:      false,
 					ExpiresAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)).Add(12 * time.Second),
 					CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),

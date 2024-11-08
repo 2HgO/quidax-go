@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"database/sql"
-	"math"
 	"time"
 
 	"github.com/2HgO/quidax-go/errors"
@@ -59,10 +58,6 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		return nil, err
 	}
 
-	if wallet.Data.Balance < amount {
-		return nil, errors.NewFailedDependencyError("Insufficient Balance")
-	}
-
 	id := tdb_types.ID()
 	ref := uuid.New()
 	withdrawal := &models.Withdrawal{
@@ -115,7 +110,7 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		ID:              id,
 		DebitAccountID:  walletID,
 		CreditAccountID: destinationID,
-		Amount:          tdb_types.ToUint128(uint64(math.Floor(amount * 10e8))),
+		Amount:          utils.ToAmount(amount),
 		Ledger:          LedgerIDs[req.Currency],
 		UserData64:      userData64.Uint64(),
 		Code:            2,
@@ -125,6 +120,11 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		return nil, errors.HandleTxDBError(err)
 	}
 	if len(res) > 0 {
+		for _, r := range res {
+			if r.Result == tdb_types.TransferExceedsCredits {
+				return nil, errors.NewFailedDependencyError("Insufficient Balance")
+			}
+		}
 		return nil, errors.NewUnknownError(res[0].Result.String())
 	}
 
@@ -132,25 +132,29 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		return nil, errors.HandleDataDBError(err)
 	}
 
+	// ?todo make asynchronous when third party payment processor implemented
+	data := &responses.WithdrawalResponseData{
+		ID:              id.String(),
+		Reference:       withdrawal.Ref,
+		Type:            withdrawal.Recipient.Type,
+		Currency:        req.Currency,
+		Amount:          amount,
+		Fee:             0,
+		Total:           amount,
+		TransactionID:   id.String(),
+		TransactionNote: withdrawal.TransactionNote,
+		Narration:       withdrawal.Narration,
+		Status:          withdrawal.Status,
+		CreatedAt:       now,
+		DoneAt:          now,
+		Recipient:       withdrawal.Recipient,
+		Wallet:          wallet.Data,
+		User:            wallet.Data.User,
+	}
+	go w.webhookService.SendWithdrawalCompletedEvent(ctx.Value("user").(*models.Account), data)
+
 	return &responses.Response[*responses.WithdrawalResponseData]{
-		Data: &responses.WithdrawalResponseData{
-			ID:              id.String(),
-			Reference:       withdrawal.Ref,
-			Type:            withdrawal.Recipient.Type,
-			Currency:        req.Currency,
-			Amount:          amount,
-			Fee:             0,
-			Total:           amount,
-			TransactionID:   id.String(),
-			TransactionNote: withdrawal.TransactionNote,
-			Narration:       withdrawal.Narration,
-			Status:          withdrawal.Status,
-			CreatedAt:       now,
-			DoneAt:          now,
-			Recipient:       withdrawal.Recipient,
-			Wallet:          wallet.Data,
-			User:            wallet.Data.User,
-		},
+		Data: data,
 	}, nil
 }
 
