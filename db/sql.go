@@ -5,6 +5,7 @@ import (
 	"log"
 	"sync"
 
+	"github.com/2HgO/quidax-go/config"
 	"github.com/go-sql-driver/mysql"
 )
 
@@ -16,7 +17,7 @@ func GetDataDBConnection() *sql.DB {
 		cfg := mysql.Config{
 			User:      "root",
 			Net:       "tcp",
-			Addr:      "127.0.0.1:3306",
+			Addr:      config.DATA_DB_URL, //"127.0.0.1:3306"
 			DBName:    "quidax-go",
 			ParseTime: true,
 		}

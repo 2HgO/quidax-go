@@ -1,0 +1,9 @@
+FROM ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+
+RUN mkdir -p /data
+
+COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT [ "/entrypoint.sh" ]

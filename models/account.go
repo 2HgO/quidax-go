@@ -10,13 +10,14 @@ type Account struct {
 	Email       string     `json:"email,omitempty"`
 	FirstName   string     `json:"first_name"`
 	LastName    string     `json:"last_name"`
-	CallbackURL *string    `json:"callback_url,omitempty"`
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	UpdatedAt   *time.Time `json:"updated_at,omitempty"`
 
 	// internal fields
-	IsMainAccount bool `json:"-"`
+	IsMainAccount bool    `json:"-"`
+	ParentID      *string `json:"-"`
+	CallbackURL   *string `json:"-"`
+	WebhookKey    *string `json:"-"`
 	// ? maybe change to uuid.UUID
-	ParentID *string `json:"-"`
 	Password *string `json:"-"`
 }

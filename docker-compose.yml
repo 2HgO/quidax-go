@@ -1,0 +1,120 @@
+version: '3.9'
+
+networks:
+  quidax-go:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.5.0.0/16
+          gateway: 10.5.0.1
+
+services:
+  datadb:
+    logging:
+      driver: "none"
+    build:
+      dockerfile: Dockerfile.mysql
+      context: .
+    restart: always
+    expose:
+      - 3306
+    environment:
+      MYSQL_DATABASE: quidax-go
+      MYSQL_ALLOW_EMPTY_PASSWORD: true
+    networks:
+      quidax-go:
+        ipv4_address: 10.5.0.4
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+  txdbrepl1:
+    build:
+      dockerfile: Dockerfile.tigerbeetle
+    # command: start --addresses=repl1.docker.internal:3000,repl2.docker.internal:3001,repl3.docker.internal:3002 /data/quidax_01.tigerbeetle
+    command: start --addresses=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002 --cache-grid=256MiB /data/quidax_01.tigerbeetle
+    restart: always
+    ports:
+      - '3000:3000'
+    expose:
+      - 3000
+    cap_add:    
+      - IPC_LOCK
+    volumes:
+      - ./data/tigerbeetle:/data
+    depends_on:
+      - txdbrepl2
+      - txdbrepl3
+    security_opt:
+      - "seccomp=unconfined"
+    privileged: true
+    # hostname: repl1.docker.internal
+    environment:
+      - CLUSTERNAME=quidax_01
+      - CLUSTERNUMBER=0
+    networks:
+      quidax-go:
+        ipv4_address: 10.5.0.5
+  txdbrepl2:
+    logging:
+      driver: "none"
+    build:
+      dockerfile: Dockerfile.tigerbeetle
+    # command: start --addresses=repl1.docker.internal:3000,repl2.docker.internal:3001,repl3.docker.internal:3002 /data/quidax_02.tigerbeetle
+    command: start --addresses=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002 --cache-grid=32MiB /data/quidax_02.tigerbeetle
+    restart: always
+    expose:
+      - 3001
+    cap_add:    
+      - IPC_LOCK
+    volumes:
+      - ./data/tigerbeetle:/data
+    security_opt:
+      - "seccomp=unconfined"
+    # hostname: repl2.docker.internal
+    environment:
+      - CLUSTERNAME=quidax_02
+      - CLUSTERNUMBER=1
+    depends_on:
+      - txdbrepl3
+    networks:
+      quidax-go:
+        ipv4_address: 10.5.0.6
+  txdbrepl3:
+    logging:
+      driver: "none"
+    build:
+      dockerfile: Dockerfile.tigerbeetle
+    # command: start --addresses=repl1.docker.internal:3000,repl2.docker.internal:3001,repl3.docker.internal:3002 /data/quidax_03.tigerbeetle
+    command: start --addresses=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002 --cache-grid=32MiB /data/quidax_03.tigerbeetle
+    restart: always
+    expose:
+      - 3002
+    cap_add:    
+      - IPC_LOCK
+    volumes:
+      - ./data/tigerbeetle:/data
+    security_opt:
+      - "seccomp=unconfined"
+    environment:
+      - CLUSTERNAME=quidax_03
+      - CLUSTERNUMBER=2
+    networks:
+      quidax-go:
+        ipv4_address: 10.5.0.7
+    # hostname: repl3.docker.internal
+  app:
+    build:
+      dockerfile: Dockerfile.app
+      context: .
+    restart: unless-stopped
+    ports:
+      - '55059:55059'
+    environment:
+      - CGO_ENABLED=1
+      - DATA_DB_URL=10.5.0.4:3306
+      - TX_DB_URL=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002
+    depends_on:
+      - txdbrepl1
+      - datadb
+    networks:
+      quidax-go:
+        ipv4_address: 10.5.0.8
