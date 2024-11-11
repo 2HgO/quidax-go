@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -73,8 +74,31 @@ func (i *instantSwapService) normalizeTransaction(from string, to string, amount
 	}
 }
 
+func (i *instantSwapService) QuoteInstantSwap(ctx context.Context, req *requests.CreateInstantSwapRequest) (*responses.Response[*responses.QuoteInstantSwapResponseData], error) {
+	transactionDetails := i.normalizeTransaction(req.FromCurrency, req.ToCurrency, float64(req.FromAmount))
+
+	data := &responses.QuoteInstantSwapResponseData{
+		FromCurrency:   req.FromCurrency,
+		ToCurrency:     req.ToCurrency,
+		QuotedPrice:    utils.ApproximateAmount(req.ToCurrency, Rates[req.FromCurrency][req.ToCurrency]),
+		QuotedCurrency: req.FromCurrency,
+		FromAmount:     transactionDetails.fromAmount,
+		ToAmount:       transactionDetails.toAmount,
+	}
+	if (req.FromCurrency == "ngn") {
+		data.QuotedCurrency = req.FromCurrency
+		data.QuotedPrice = utils.ApproximateAmount(req.FromCurrency, 1/Rates[req.FromCurrency][req.ToCurrency])
+	}
+
+	fmt.Println(data)
+
+	return &responses.Response[*responses.QuoteInstantSwapResponseData]{
+		Data: data,
+	}, nil
+}
+
 func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *requests.CreateInstantSwapRequest) (*responses.Response[*responses.InstantSwapQuotationResponseData], error) {
-	transactionDetails := i.normalizeTransaction(req.FromCurrency, req.ToCurrency, req.FromAmount)
+	transactionDetails := i.normalizeTransaction(req.FromCurrency, req.ToCurrency, float64(req.FromAmount))
 	fromWallet, err := i.walletService.FetchUserWallet(ctx, &requests.FetchUserWalletRequest{UserID: req.UserID, Currency: req.FromCurrency})
 	if err != nil {
 		return nil, err
@@ -95,6 +119,7 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 	ref := tdb_types.ID().BigInt()
 	now := time.Now()
 	timeout := now.Add(time.Second * 12)
+	// todo: figure out how or where to store rate data maybe force mash float64 number into uint32 bits?
 	transactions := []tdb_types.Transfer{
 		{
 			ID:              tdb_types.ID(),
@@ -143,14 +168,18 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 		ID:             tdb_types.ToUint128(ref.Uint64()).String(),
 		FromCurrency:   req.FromCurrency,
 		ToCurrency:     req.ToCurrency,
-		QuotedPrice:    utils.ApproximateAmount(req.FromCurrency, transactionDetails.toAmount/transactionDetails.fromAmount),
-		QuotedCurrency: req.FromCurrency,
+		QuotedPrice:    utils.ApproximateAmount(req.ToCurrency, Rates[req.FromCurrency][req.ToCurrency]),
+		QuotedCurrency: req.ToCurrency,
 		FromAmount:     transactionDetails.fromAmount,
 		ToAmount:       transactionDetails.toAmount,
 		Confirmed:      false,
 		ExpiresAt:      timeout,
 		CreatedAt:      now,
 		User:           fromWallet.Data.User,
+	}
+	if (req.FromCurrency == "ngn") {
+		data.QuotedCurrency = req.FromCurrency
+		data.QuotedPrice = utils.ApproximateAmount(req.FromCurrency, 1/Rates[req.FromCurrency][req.ToCurrency])
 	}
 
 	parent := ctx.Value("user").(*models.Account)
@@ -234,7 +263,7 @@ failedTransfer:
 		ID:             tdb_types.ToUint128(ref.Uint64()).String(),
 		FromCurrency:   Ledgers[transactions[0].Ledger],
 		ToCurrency:     Ledgers[transactions[1].Ledger],
-		ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
+		ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
 		FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 		ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 		CreatedAt:      ts,
@@ -245,8 +274,8 @@ failedTransfer:
 			ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
 			FromCurrency:   Ledgers[transactions[0].Ledger],
 			ToCurrency:     Ledgers[transactions[1].Ledger],
-			QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
-			QuotedCurrency: Ledgers[transactions[0].Ledger],
+			QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
+			QuotedCurrency: Ledgers[transactions[1].Ledger],
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 			ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 			Confirmed:      true,
@@ -315,7 +344,7 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 			ID:             tdb_types.ToUint128(ref.Uint64()).String(),
 			FromCurrency:   Ledgers[transactions[0].Ledger],
 			ToCurrency:     Ledgers[transactions[1].Ledger],
-			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
+			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 			CreatedAt:      now,
@@ -326,8 +355,8 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 				ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
 				FromCurrency:   Ledgers[transactions[0].Ledger],
 				ToCurrency:     Ledgers[transactions[1].Ledger],
-				QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[0].Ledger], toAmount/fromAmount),
-				QuotedCurrency: Ledgers[transactions[0].Ledger],
+				QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
+				QuotedCurrency: Ledgers[transactions[1].Ledger],
 				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 				ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 				Confirmed:      true,
@@ -465,7 +494,7 @@ func (i *instantSwapService) groupTransactions(txs []tdb_types.Transfer, user *m
 			ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
 			FromCurrency:   Ledgers[transactions[0].Ledger],
 			ToCurrency:     Ledgers[transactions[1].Ledger],
-			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[1].Amount)/utils.FromAmount(transactions[0].Amount)),
+			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)/utils.FromAmount(transactions[0].Amount)),
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
 			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
 			CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
@@ -476,8 +505,8 @@ func (i *instantSwapService) groupTransactions(txs []tdb_types.Transfer, user *m
 				ID:             tdb_types.ToUint128(quotations[0].UserData64).String(),
 				FromCurrency:   Ledgers[quotations[0].Ledger],
 				ToCurrency:     Ledgers[quotations[1].Ledger],
-				QuotedPrice:    utils.ApproximateAmount(Ledgers[quotations[0].Ledger], utils.FromAmount(quotations[1].Amount)/utils.FromAmount(quotations[0].Amount)),
-				QuotedCurrency: Ledgers[quotations[0].Ledger],
+				QuotedPrice:    utils.ApproximateAmount(Ledgers[quotations[1].Ledger], utils.FromAmount(quotations[1].Amount)/utils.FromAmount(quotations[0].Amount)),
+				QuotedCurrency: Ledgers[quotations[1].Ledger],
 				FromAmount:     utils.ApproximateAmount(Ledgers[quotations[0].Ledger], utils.FromAmount(quotations[0].Amount)),
 				ToAmount:       utils.ApproximateAmount(Ledgers[quotations[1].Ledger], utils.FromAmount(quotations[1].Amount)),
 				Confirmed:      status != "reversed",

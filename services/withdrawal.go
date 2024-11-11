@@ -23,13 +23,14 @@ type WithdrawalService interface {
 	FetchWithdrawals(ctx context.Context, req *requests.FetchWithdrawalsRequest) (*responses.Response[[]*responses.WithdrawalResponseData], error)
 }
 
-func NewWithdrawalService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, walletService WalletService, log *zap.Logger) WithdrawalService {
+func NewWithdrawalService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, walletService WalletService, webhookService WebhookService, log *zap.Logger) WithdrawalService {
 	return &withdrawalService{
 		service: service{
 			transactionDB:  txDatabase,
 			dataDB:         dataDatabase,
 			accountService: accountService,
 			walletService:  walletService,
+			webhookService: webhookService,
 			log:            log,
 		},
 	}
@@ -40,7 +41,7 @@ type withdrawalService struct {
 }
 
 func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *requests.CreateWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error) {
-	amount := utils.ApproximateAmount(req.Currency, req.Amount)
+	amount := utils.ApproximateAmount(req.Currency, float64(req.Amount))
 	wallet, err := w.walletService.FetchUserWallet(ctx, &requests.FetchUserWalletRequest{UserID: req.UserID, Currency: req.Currency})
 	if err != nil {
 		return nil, err

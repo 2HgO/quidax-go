@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -38,27 +39,34 @@ func NewWebhookService(accountService AccountService, log *zap.Logger) WebhookSe
 	}
 }
 
-func (w *webhookService) doRequest(url string, body *bytes.Buffer) (error, bool) {
+func (w *webhookService) doRequest(url string, body *bytes.Buffer, key *string) (error, bool) {
+	time.Sleep(time.Second * 5)
 	req, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
 		return err, false
 	}
 
-	now := time.Now().Unix()
-	data := strings.ReplaceAll(body.String(), "/", "\\/")
-	payload := fmt.Sprintf("%d.%s", now, data)
-	// todo
-	mac := hmac.New(sha256.New, []byte("foobar"))
-	if _, err := mac.Write([]byte(payload)); err != nil {
-		return err, false
+	if key != nil {
+		now := time.Now().Unix()
+		data := strings.ReplaceAll(body.String(), "/", "\\/")
+		payload := fmt.Sprintf("%d.%s", now, data)
+		// todo
+		mac := hmac.New(sha256.New, []byte(*key))
+		if _, err := mac.Write([]byte(payload)); err != nil {
+			return err, false
+		}
+		signature := hex.EncodeToString(mac.Sum(nil))
+		req.Header.Set("quidax-signature", fmt.Sprintf("ts=%d,sig=%s", now, signature))
 	}
-	signature := hex.EncodeToString(mac.Sum(nil))
 
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("accept", "application/json")
-	req.Header.Set("quidax-signature", fmt.Sprintf("ts=%d,sig=%s", now, signature))
 
 	res, err := http.DefaultClient.Do(req)
+	if res != nil {
+		resData, _ := io.ReadAll(res.Body)
+		w.log.Info("response from callback", zap.String("Response Data", string(resData)))
+	}
 	return err, (res != nil && res.StatusCode < 300)
 }
 
@@ -66,6 +74,7 @@ func (w *webhookService) sendEvent(parent *models.Account, eventType models.Webh
 	if parent.CallbackURL == nil {
 		return w
 	}
+	w.log.Info("dispatching event...", zap.String("Event Type", eventType.String()))
 
 	event := &models.Webhook{
 		Event: eventType,
@@ -79,7 +88,7 @@ func (w *webhookService) sendEvent(parent *models.Account, eventType models.Webh
 		return w
 	}
 
-	err, ok := w.doRequest(*parent.CallbackURL, bytes.NewBuffer(data))
+	err, ok := w.doRequest(*parent.CallbackURL, bytes.NewBuffer(data), parent.WebhookKey)
 	if err != nil {
 		//todo
 		w.log.Error("dispatching request", zap.Error(err))

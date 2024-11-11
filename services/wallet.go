@@ -11,6 +11,8 @@ import (
 	"github.com/2HgO/quidax-go/utils"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	tdb "github.com/tigerbeetle/tigerbeetle-go"
 	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
@@ -118,9 +120,10 @@ func (w *walletService) FetchUserWallets(ctx context.Context, req *requests.Fetc
 		wallet := walletsMap[res[i].ID.String()]
 		data[i] = &responses.UserWalletResponseData{
 			ID:            wallet.ID,
+			Name:          cases.Upper(language.English).String(wallet.Token),
 			Currency:      wallet.Token,
-			Balance:       float64(balance.Uint64()) * 1e-9,
-			LockedBalance: float64(pendingDebits.Uint64()) * 1e-9,
+			Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+			LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
 			User:          user.Data,
 		}
 	}
@@ -172,9 +175,10 @@ func (w *walletService) FetchUserWallet(ctx context.Context, req *requests.Fetch
 	balance = balance.Sub(balance, &pendingDebits)
 	data := &responses.UserWalletResponseData{
 		ID:            wallet.ID,
+		Name:          cases.Upper(language.English).String(wallet.Token),
 		Currency:      wallet.Token,
-		Balance:       utils.ApproximateAmount(wallet.Token, float64(balance.Uint64())*1e-9),
-		LockedBalance: utils.ApproximateAmount(wallet.Token, float64(pendingDebits.Uint64())*1e-9),
+		Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+		LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
 		User:          user.Data,
 	}
 
@@ -242,9 +246,10 @@ func (w *walletService) LookupWallets(ctx context.Context, ids []string) (map[st
 
 		data[res[i].ID.String()] = &responses.UserWalletResponseData{
 			ID:            wallet.ID,
+			Name:          cases.Upper(language.English).String(wallet.Token),
 			Currency:      wallet.Token,
-			Balance:       float64(balance.Uint64()) * 1e-9,
-			LockedBalance: float64(pendingDebits.Uint64()) * 1e-9,
+			Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+			LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
 			User:          user,
 		}
 	}

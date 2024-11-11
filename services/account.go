@@ -14,6 +14,8 @@ import (
 	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/2HgO/quidax-go/errors"
 	"github.com/2HgO/quidax-go/models"
@@ -52,13 +54,14 @@ type accountService struct {
 func (a *accountService) CreateAccount(ctx context.Context, req *requests.CreateAccountRequest) (*responses.Response[*responses.CreateAccountResponseData], error) {
 	now := time.Now()
 	accountID := uuid.New()
+
 	account := &models.Account{
 		ID:          accountID.String(),
 		SN:          cuid.New(),
 		DisplayName: req.DisplayName,
-		Email:       strings.ToLower(req.Email),
-		FirstName:   strings.ToTitle(req.FirstName),
-		LastName:    strings.ToTitle(req.LastName),
+		Email:       cases.Lower(language.English).String(req.Email),
+		FirstName:   cases.Title(language.English).String(req.FirstName),
+		LastName:    cases.Title(language.English).String(req.LastName),
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
@@ -222,11 +225,10 @@ func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.
 
 func (a *accountService) GetAccountByAccessToken(ctx context.Context, token string) (*models.Account, error) {
 	row := sq.
-		Select("accounts.id", "email", "callback_url", "display_name").
+		Select("accounts.id", "email", "callback_url", "display_name", "webhook_key").
 		From("access_tokens").
 		Join("accounts on access_tokens.account_id = accounts.id").
 		Where(sq.Eq{"token": token}).
-		Limit(1).
 		RunWith(a.dataDB).
 		QueryRowContext(ctx)
 
@@ -234,7 +236,7 @@ func (a *accountService) GetAccountByAccessToken(ctx context.Context, token stri
 		return nil, errors.NewNotFoundError("token not found")
 	}
 	var account = &models.Account{}
-	err := row.Scan(&account.ID, &account.Email, &account.CallbackURL, &account.DisplayName)
+	err := row.Scan(&account.ID, &account.Email, &account.CallbackURL, &account.DisplayName, &account.WebhookKey)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
 	}
@@ -244,9 +246,13 @@ func (a *accountService) GetAccountByAccessToken(ctx context.Context, token stri
 
 func (a *accountService) UpdateWebHookURL(ctx context.Context, req *requests.UpdateWebhookURLRequest) error {
 	parent := ctx.Value("user").(*models.Account)
+	update := sq.Eq{"callback_url": req.CallbackURL}
+	if req.WebhookKey != nil && *req.WebhookKey != "" {
+		update["webhook_key"] = *req.WebhookKey
+	}
 	_, err := sq.
 		Update("accounts").
-		Set("callback_url", req.CallbackURL).
+		SetMap(update).
 		Where(sq.Eq{"id": parent.ID, "is_main_account": true}).
 		RunWith(a.dataDB).
 		ExecContext(ctx)

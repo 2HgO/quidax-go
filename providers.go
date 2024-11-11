@@ -30,7 +30,7 @@ func NewHttpServer(lc fx.Lifecycle, mux *http.ServeMux, log *zap.Logger) *http.S
 	srv := &http.Server{
 		Addr: ":55059",
 		// todo: handler request logger manually
-		Handler:      gHandlers.CORS(opts...)(handlers.RecoveryMW(httplog.LoggerWithConfig(config)(mux))),
+		Handler:      gHandlers.CORS(opts...)(httplog.LoggerWithConfig(config)(handlers.RecoveryMW(mux))),
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
