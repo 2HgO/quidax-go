@@ -16,8 +16,7 @@ type Account struct {
 	// internal fields
 	IsMainAccount bool    `json:"-"`
 	ParentID      *string `json:"-"`
-	CallbackURL   *string `json:"-"`
-	WebhookKey    *string `json:"-"`
-	// ? maybe change to uuid.UUID
-	Password *string `json:"-"`
+
+	// populated data
+	WebhookDetails WebhookDetails `json:"-"`
 }

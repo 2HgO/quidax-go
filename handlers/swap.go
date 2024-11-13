@@ -39,10 +39,10 @@ func (i *instantSwapHandler) ServeHttp(mux *http.ServeMux) {
 			markets[k+j] = map[string]any{
 				"ticker": map[string]float64{
 					"open": services.Rates[k][j],
-					"buy": services.Rates[k][j],
+					"buy":  services.Rates[k][j],
 					"sell": services.Rates[j][k],
 				},
-				"market": k+j,
+				"market": k + j,
 			}
 		}
 	}

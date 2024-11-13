@@ -8,7 +8,7 @@ import (
 
 type WithdrawalResponseData struct {
 	ID              string                  `json:"id"`
-	Reference       *string                 `json:"reference"`
+	Reference       string                  `json:"reference"`
 	Type            models.RecipientType    `json:"type"`
 	Currency        string                  `json:"currency"`
 	Amount          float64                 `json:"amount,string"`

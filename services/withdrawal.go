@@ -59,13 +59,13 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		return nil, err
 	}
 
-	id := tdb_types.ID()
-	ref := uuid.New()
+	txID := tdb_types.ID()
+	id := uuid.New()
 	withdrawal := &models.Withdrawal{
 		ID:              id.String(),
 		WalletID:        wallet.Data.ID,
-		AccountID:       wallet.Data.User.ID,
-		Ref:             utils.String(ref.String()),
+		Ref:             txID.String(), // ref == tx_id for all internal withdrawals
+		TxID:            txID.String(),
 		TransactionNote: req.TransactionNote,
 		Narration:       req.Narration,
 		// todo: handle other destination types
@@ -89,12 +89,12 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 	_, err = sq.
 		Insert("withdrawals").
 		Columns(
-			"id", "wallet_id", "account_id", "ref", "transaction_note", "narration",
+			"id", "wallet_id", "ref", "tx_id", "transaction_note", "narration",
 			"status", "recipient_type", "recipient_details_name",
 			"recipient_details_destination_tag", "recipient_details_address",
 		).
 		Values(
-			withdrawal.ID, withdrawal.WalletID, withdrawal.AccountID, withdrawal.Ref, withdrawal.TransactionNote, withdrawal.Narration,
+			withdrawal.ID, withdrawal.WalletID, withdrawal.Ref, withdrawal.TxID, withdrawal.TransactionNote, withdrawal.Narration,
 			withdrawal.Status, withdrawal.Recipient.Type, withdrawal.Recipient.Details.Name,
 			withdrawal.Recipient.Details.DestinationTag, withdrawal.Recipient.Details.Address,
 		).
@@ -106,14 +106,13 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 	}
 
 	now := time.Now()
-	userData64 := tdb_types.BytesToUint128(ref).BigInt()
 	trf := tdb_types.Transfer{
-		ID:              id,
+		ID:              txID,
 		DebitAccountID:  walletID,
 		CreditAccountID: destinationID,
 		Amount:          utils.ToAmount(amount),
 		Ledger:          LedgerIDs[req.Currency],
-		UserData64:      userData64.Uint64(),
+		UserData128:     tdb_types.BytesToUint128(uuid.MustParse(wallet.Data.User.ID)),
 		Code:            2,
 	}
 	res, err := w.transactionDB.CreateTransfers([]tdb_types.Transfer{trf})
@@ -135,14 +134,14 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 
 	// ?todo make asynchronous when third party payment processor implemented
 	data := &responses.WithdrawalResponseData{
-		ID:              id.String(),
+		ID:              withdrawal.ID,
 		Reference:       withdrawal.Ref,
 		Type:            withdrawal.Recipient.Type,
 		Currency:        req.Currency,
 		Amount:          amount,
 		Fee:             0,
 		Total:           amount,
-		TransactionID:   id.String(),
+		TransactionID:   withdrawal.TxID,
 		TransactionNote: withdrawal.TransactionNote,
 		Narration:       withdrawal.Narration,
 		Status:          withdrawal.Status,
@@ -152,7 +151,7 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		Wallet:          wallet.Data,
 		User:            wallet.Data.User,
 	}
-	go w.webhookService.SendWithdrawalCompletedEvent(ctx.Value("user").(*models.Account), data)
+	go w.webhookService.SendWithdrawalCompletedEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
 
 	return &responses.Response[*responses.WithdrawalResponseData]{
 		Data: data,
@@ -167,17 +166,15 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 
 	stmt := sq.
 		Select(
-			"withdrawals.id", "withdrawals.ref", "withdrawals.transaction_note",
+			"withdrawals.id", "withdrawals.ref", "withdrawals.tx_id", "withdrawals.transaction_note",
 			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
 			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
 
 			"wallets.id",
 		).
 		From("withdrawals").
-		Join("accounts as sender on withdrawals.account_id = sender.id").
 		Join("wallets on withdrawals.wallet_id = wallets.id").
-		Join("accounts as recipient on withdrawals.recipient_details_destination_tag = recipient.id").
-		Where(sq.Or{sq.Eq{"withdrawals.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
+		Where(sq.Or{sq.Eq{"wallets.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
 
 	switch "" {
 	case req.Reference:
@@ -198,7 +195,7 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 		User:   &models.Account{},
 	}
 	err = row.Scan(
-		&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionNote,
+		&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionID, &withdrawal.TransactionNote,
 		&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
 		&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
 
@@ -208,7 +205,7 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 		return nil, errors.HandleDataDBError(err)
 	}
 
-	data, err := w.populateWithdrawals(ctx, map[string]*responses.WithdrawalResponseData{withdrawal.ID: withdrawal}, user.Data)
+	data, err := w.populateWithdrawals(ctx, map[string]*responses.WithdrawalResponseData{withdrawal.TransactionID: withdrawal}, user.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -231,17 +228,15 @@ func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.
 
 	stmt := sq.
 		Select(
-			"withdrawals.id", "withdrawals.ref", "withdrawals.transaction_note",
+			"withdrawals.id", "withdrawals.ref", "withdrawals.tx_id", "withdrawals.transaction_note",
 			"withdrawals.narration", "withdrawals.status", "withdrawals.recipient_type", "withdrawals.recipient_details_name",
 			"withdrawals.recipient_details_destination_tag", "withdrawals.recipient_details_address",
 
 			"wallets.id",
 		).
 		From("withdrawals").
-		Join("accounts as sender on withdrawals.account_id = sender.id").
 		Join("wallets on withdrawals.wallet_id = wallets.id").
-		Join("accounts as recipient on withdrawals.recipient_details_destination_tag = recipient.id").
-		Where(sq.Or{sq.Eq{"withdrawals.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
+		Where(sq.Or{sq.Eq{"wallets.account_id": user.Data.ID}, sq.Eq{"withdrawals.recipient_details_destination_tag": user.Data.ID}})
 
 	if req.State != nil {
 		stmt = stmt.Where(sq.Eq{"withdrawals.state": *req.State})
@@ -265,7 +260,7 @@ func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.
 			User:   &models.Account{},
 		}
 		err = rows.Scan(
-			&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionNote,
+			&withdrawal.ID, &withdrawal.Reference, &withdrawal.TransactionID, &withdrawal.TransactionNote,
 			&withdrawal.Narration, &withdrawal.Status, &withdrawal.Recipient.Type, &withdrawal.Recipient.Details.Name,
 			&withdrawal.Recipient.Details.DestinationTag, &withdrawal.Recipient.Details.Address,
 
@@ -274,7 +269,7 @@ func (w *withdrawalService) FetchWithdrawals(ctx context.Context, req *requests.
 		if err != nil {
 			return nil, errors.HandleDataDBError(err)
 		}
-		withdrawals[withdrawal.ID] = withdrawal
+		withdrawals[withdrawal.TransactionID] = withdrawal
 	}
 
 	data, err := w.populateWithdrawals(ctx, withdrawals, user.Data)
@@ -291,9 +286,9 @@ func (w *withdrawalService) populateWithdrawals(ctx context.Context, withdrawals
 	walletIds := make([]string, 0)
 	transferIds := make([]tdb_types.Uint128, 0)
 
-	for _, withdrawal := range withdrawals {
+	for txid, withdrawal := range withdrawals {
 		walletIds = append(walletIds, withdrawal.Wallet.ID)
-		txId, err := tdb_types.HexStringToUint128(withdrawal.ID)
+		txId, err := tdb_types.HexStringToUint128(txid)
 		if err != nil {
 			return nil, err
 		}

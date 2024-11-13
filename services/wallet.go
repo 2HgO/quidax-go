@@ -194,7 +194,7 @@ func (w *walletService) LookupWallets(ctx context.Context, ids []string) (map[st
 			"wallets.id", "wallets.account_id", "wallets.token",
 
 			"accounts.id", "accounts.sn", "accounts.display_name", "accounts.email", "accounts.first_name",
-			"accounts.last_name", "accounts.callback_url", "accounts.created_at", "accounts.updated_at",
+			"accounts.last_name", "accounts.created_at", "accounts.updated_at",
 		).
 		From("wallets").
 		Join("accounts on wallets.account_id = accounts.id").
@@ -215,7 +215,7 @@ func (w *walletService) LookupWallets(ctx context.Context, ids []string) (map[st
 			&wallet.ID, &wallet.AccountID, &wallet.Token,
 
 			&account.ID, &account.SN, &account.DisplayName, &account.Email, &account.FirstName,
-			&account.LastName, &account.CallbackURL, &account.CreatedAt, &account.UpdatedAt,
+			&account.LastName, &account.CreatedAt, &account.UpdatedAt,
 		)
 		if err != nil {
 			return nil, errors.HandleDataDBError(err)

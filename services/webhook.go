@@ -18,12 +18,12 @@ import (
 )
 
 type WebhookService interface {
-	SendWalletUpdatedEvent(parent *models.Account, wallet *responses.UserWalletResponseData) (self WebhookService)
-	SendInstantSwapCompletedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendInstantSwapFailedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendInstantSwapReversedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendWithdrawalCompletedEvent(parent *models.Account, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
-	SendWithdrawalFailedEvent(parent *models.Account, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
+	SendWalletUpdatedEvent(whDetails models.WebhookDetails, wallet *responses.UserWalletResponseData) (self WebhookService)
+	SendInstantSwapCompletedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
+	SendInstantSwapFailedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
+	SendInstantSwapReversedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
+	SendWithdrawalCompletedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
+	SendWithdrawalFailedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
 }
 
 type webhookService struct {
@@ -70,8 +70,8 @@ func (w *webhookService) doRequest(url string, body *bytes.Buffer, key *string) 
 	return err, (res != nil && res.StatusCode < 300)
 }
 
-func (w *webhookService) sendEvent(parent *models.Account, eventType models.WebhookEvent, eventData any) (self WebhookService) {
-	if parent.CallbackURL == nil {
+func (w *webhookService) sendEvent(whDetails models.WebhookDetails, eventType models.WebhookEvent, eventData any) (self WebhookService) {
+	if whDetails.CallbackURL == nil {
 		return w
 	}
 	w.log.Info("dispatching event...", zap.String("Event Type", eventType.String()))
@@ -88,7 +88,7 @@ func (w *webhookService) sendEvent(parent *models.Account, eventType models.Webh
 		return w
 	}
 
-	err, ok := w.doRequest(*parent.CallbackURL, bytes.NewBuffer(data), parent.WebhookKey)
+	err, ok := w.doRequest(*whDetails.CallbackURL, bytes.NewBuffer(data), whDetails.WebhookKey)
 	if err != nil {
 		//todo
 		w.log.Error("dispatching request", zap.Error(err))
@@ -103,26 +103,26 @@ func (w *webhookService) sendEvent(parent *models.Account, eventType models.Webh
 	return w
 }
 
-func (w *webhookService) SendWalletUpdatedEvent(parent *models.Account, wallet *responses.UserWalletResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.WalletUpdated_WebhookEvent, wallet)
+func (w *webhookService) SendWalletUpdatedEvent(whDetails models.WebhookDetails, wallet *responses.UserWalletResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.WalletUpdated_WebhookEvent, wallet)
 }
 
-func (w *webhookService) SendInstantSwapCompletedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.SwapTransactionCompleted_WebhookEvent, swap)
+func (w *webhookService) SendInstantSwapCompletedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.SwapTransactionCompleted_WebhookEvent, swap)
 }
 
-func (w *webhookService) SendInstantSwapFailedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.SwapTransactionFailed_WebhookEvent, swap)
+func (w *webhookService) SendInstantSwapFailedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.SwapTransactionFailed_WebhookEvent, swap)
 }
 
-func (w *webhookService) SendInstantSwapReversedEvent(parent *models.Account, swap *responses.InstantSwapResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.SwapTransactionReversed_WebhookEvent, swap)
+func (w *webhookService) SendInstantSwapReversedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.SwapTransactionReversed_WebhookEvent, swap)
 }
 
-func (w *webhookService) SendWithdrawalCompletedEvent(parent *models.Account, withdrawal *responses.WithdrawalResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.WithdrawalCompleted_WebhookEvent, withdrawal)
+func (w *webhookService) SendWithdrawalCompletedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.WithdrawalCompleted_WebhookEvent, withdrawal)
 }
 
-func (w *webhookService) SendWithdrawalFailedEvent(parent *models.Account, withdrawal *responses.WithdrawalResponseData) (self WebhookService) {
-	return w.sendEvent(parent, models.WithdrawalFailed_WebhookEvent, withdrawal)
+func (w *webhookService) SendWithdrawalFailedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.WithdrawalFailed_WebhookEvent, withdrawal)
 }

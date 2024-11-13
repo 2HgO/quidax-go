@@ -10,8 +10,8 @@ import (
 type Withdrawal struct {
 	ID              string
 	WalletID        string
-	AccountID       string
-	Ref             *string
+	Ref             string
+	TxID            string
 	TransactionNote string
 	Narration       string
 	Reason          *string

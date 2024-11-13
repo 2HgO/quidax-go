@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"math/big"
+
+	"slices"
 	"time"
 
 	"github.com/2HgO/quidax-go/errors"
@@ -12,6 +12,7 @@ import (
 	"github.com/2HgO/quidax-go/types/requests"
 	"github.com/2HgO/quidax-go/types/responses"
 	"github.com/2HgO/quidax-go/utils"
+	sq "github.com/Masterminds/squirrel"
 	"github.com/google/uuid"
 	tdb "github.com/tigerbeetle/tigerbeetle-go"
 	tdb_types "github.com/tigerbeetle/tigerbeetle-go/pkg/types"
@@ -85,12 +86,10 @@ func (i *instantSwapService) QuoteInstantSwap(ctx context.Context, req *requests
 		FromAmount:     transactionDetails.fromAmount,
 		ToAmount:       transactionDetails.toAmount,
 	}
-	if (req.FromCurrency == "ngn") {
+	if req.FromCurrency == "ngn" {
 		data.QuotedCurrency = req.FromCurrency
 		data.QuotedPrice = utils.ApproximateAmount(req.FromCurrency, 1/Rates[req.FromCurrency][req.ToCurrency])
 	}
-
-	fmt.Println(data)
 
 	return &responses.Response[*responses.QuoteInstantSwapResponseData]{
 		Data: data,
@@ -116,34 +115,64 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 		return nil, err
 	}
 
-	ref := tdb_types.ID().BigInt()
+	tx, err := i.dataDB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	// Defer a rollback in case anything fails.
+	defer tx.Rollback()
+
+	quoteTxID0 := tdb_types.ID()
+	quoteTxID1 := tdb_types.ID()
+	swap := &models.InstantSwap{
+		ID:            uuid.NewString(),
+		QuotationID:   uuid.NewString(),
+		FromWalletID:  fromWallet.Data.ID,
+		ToWalletID:    toWallet.Data.ID,
+		QuotationRate: utils.ApproximateAmount(req.ToCurrency, Rates[req.FromCurrency][req.ToCurrency]),
+		SwapTxID0:     tdb_types.ID().String(),
+		SwapTxID1:     tdb_types.ID().String(),
+		QuoteTxID0:    quoteTxID0.String(),
+		QuoteTxID1:    quoteTxID1.String(),
+	}
+	if req.FromCurrency == "ngn" {
+		swap.QuotationRate = utils.ApproximateAmount(req.FromCurrency, 1/Rates[req.FromCurrency][req.ToCurrency])
+	}
+	swap.ExecutionRate = swap.QuotationRate
+
+	_, err = sq.
+		Insert("instant_swaps").
+		Columns("id", "quotation_id", "from_wallet_id", "to_wallet_id", "quotation_rate", "execution_rate", "swap_tx_id_0", "swap_tx_id_1", "quote_tx_id_0", "quote_tx_id_1").
+		Values(swap.ID, swap.QuotationID, swap.FromWalletID, swap.ToWalletID, swap.QuotationRate, swap.ExecutionRate, swap.SwapTxID0, swap.SwapTxID1, swap.QuoteTxID0, swap.QuoteTxID1).
+		RunWith(tx).ExecContext(ctx)
+
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
 	now := time.Now()
 	timeout := now.Add(time.Second * 12)
-	// todo: figure out how or where to store rate data maybe force mash float64 number into uint32 bits?
 	transactions := []tdb_types.Transfer{
 		{
-			ID:              tdb_types.ID(),
+			ID:              quoteTxID0,
 			CreditAccountID: tdb_types.ToUint128(uint64(LedgerIDs[req.FromCurrency])),
 			DebitAccountID:  fromWalletID,
 			Amount:          utils.ToAmount(transactionDetails.fromAmount),
 			UserData128:     tdb_types.BytesToUint128(uuid.MustParse(fromWallet.Data.User.ID)),
-			UserData64:      ref.Uint64(),
-			// ?todo: store fee information in userdata32
-			Ledger: LedgerIDs[req.FromCurrency],
-			Code:   1,
+			Ledger:          LedgerIDs[req.FromCurrency],
+			Code:            1,
 			Flags: tdb_types.TransferFlags{
 				Linked:  true,
 				Pending: true,
 			}.ToUint16(),
 		},
 		{
-			ID:              tdb_types.ID(),
+			ID:              quoteTxID1,
 			DebitAccountID:  tdb_types.ToUint128(uint64(LedgerIDs[req.ToCurrency])),
 			CreditAccountID: toWalletID,
 			Amount:          utils.ToAmount(transactionDetails.toAmount),
 			Ledger:          LedgerIDs[req.ToCurrency],
-			UserData128:     tdb_types.BytesToUint128(uuid.MustParse(fromWallet.Data.User.ID)),
-			UserData64:      ref.Uint64(),
+			UserData128:     tdb_types.BytesToUint128(uuid.MustParse(toWallet.Data.User.ID)),
 			Code:            1,
 			Flags: tdb_types.TransferFlags{
 				Pending: true,
@@ -164,11 +193,15 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 		return nil, errors.NewFailedDependencyError(res[0].Result.String())
 	}
 
+	if err = tx.Commit(); err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
 	data := &responses.InstantSwapQuotationResponseData{
-		ID:             tdb_types.ToUint128(ref.Uint64()).String(),
+		ID:             swap.QuotationID,
 		FromCurrency:   req.FromCurrency,
 		ToCurrency:     req.ToCurrency,
-		QuotedPrice:    utils.ApproximateAmount(req.ToCurrency, Rates[req.FromCurrency][req.ToCurrency]),
+		QuotedPrice:    swap.QuotationRate,
 		QuotedCurrency: req.ToCurrency,
 		FromAmount:     transactionDetails.fromAmount,
 		ToAmount:       transactionDetails.toAmount,
@@ -177,15 +210,13 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 		CreatedAt:      now,
 		User:           fromWallet.Data.User,
 	}
-	if (req.FromCurrency == "ngn") {
+	if data.FromCurrency == "ngn" {
 		data.QuotedCurrency = req.FromCurrency
-		data.QuotedPrice = utils.ApproximateAmount(req.FromCurrency, 1/Rates[req.FromCurrency][req.ToCurrency])
 	}
 
 	parent := ctx.Value("user").(*models.Account)
-	confirmationRef := tdb_types.ID()
-	i.scheduler.ScheduleInstantSwapReversal(parent, fromWallet.Data.User, confirmationRef, data)
-	go i.webhookService.SendWalletUpdatedEvent(parent, fromWallet.Data)
+	i.scheduler.ScheduleInstantSwapReversal(swap.QuotationID, now.Add(time.Second*12))
+	go i.webhookService.SendWalletUpdatedEvent(parent.WebhookDetails, fromWallet.Data)
 
 	return &responses.Response[*responses.InstantSwapQuotationResponseData]{
 		Status: "successful",
@@ -193,20 +224,104 @@ func (i *instantSwapService) CreateInstantSwap(ctx context.Context, req *request
 	}, nil
 }
 
-func (i *instantSwapService) processSwap(ref big.Int, ts time.Time, transactions []tdb_types.Transfer, parent, user *models.Account) {
+func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *requests.ConfirmInstanSwapRequest) (*responses.Response[*responses.InstantSwapResponseData], error) {
+	user, err := i.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
+	if err != nil {
+		return nil, err
+	}
+
+	row := sq.
+		Select("instant_swaps.id", "quotation_id", "from_wallet_id", "to_wallet_id", "quotation_rate", "execution_rate", "swap_tx_id_0", "swap_tx_id_1", "quote_tx_id_0", "quote_tx_id_1").
+		From("instant_swaps").
+		Where(sq.Eq{"quotation_id": req.QuotationID}).
+		RunWith(i.dataDB).
+		QueryRow()
+	if row == nil {
+		return nil, errors.NewNotFoundError("swap quotation not found")
+	}
+
+	var swap models.InstantSwap
+	err = row.Scan(
+		&swap.ID,
+		&swap.QuotationID,
+		&swap.FromWalletID,
+		&swap.ToWalletID,
+		&swap.QuotationRate,
+		&swap.ExecutionRate,
+		&swap.SwapTxID0,
+		&swap.SwapTxID1,
+		&swap.QuoteTxID0,
+		&swap.QuoteTxID1,
+	)
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+
+	qtx0, _ := tdb_types.HexStringToUint128(swap.QuoteTxID0)
+	qtx1, _ := tdb_types.HexStringToUint128(swap.QuoteTxID1)
+	transactions, err := i.transactionDB.LookupTransfers([]tdb_types.Uint128{qtx0, qtx1})
+	if err != nil {
+		return nil, errors.HandleTxDBError(err)
+	}
+	if len(transactions) != 2 {
+		return nil, errors.NewFailedDependencyError("transaction not found")
+	}
+
+	now := time.Now()
+
+	go i.processSwap(swap, now, transactions)
+
+	return &responses.Response[*responses.InstantSwapResponseData]{
+		Status: "successful",
+		Data: &responses.InstantSwapResponseData{
+			ID:             swap.ID,
+			FromCurrency:   Ledgers[transactions[0].Ledger],
+			ToCurrency:     Ledgers[transactions[1].Ledger],
+			ExecutionPrice: swap.ExecutionRate,
+			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
+			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+			User:           user.Data,
+			Status:         "pending",
+			SwapQuotation: &responses.InstantSwapQuotationResponseData{
+				ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
+				FromCurrency:   Ledgers[transactions[0].Ledger],
+				ToCurrency:     Ledgers[transactions[1].Ledger],
+				QuotedPrice:    swap.QuotationRate,
+				QuotedCurrency: Ledgers[transactions[1].Ledger],
+				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
+				ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
+				Confirmed:      true,
+				ExpiresAt:      time.Unix(int64(transactions[0].Timeout), 0),
+				CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
+				User:           user.Data,
+			},
+		},
+	}, nil
+}
+
+func (i *instantSwapService) processSwap(swap models.InstantSwap, ts time.Time, transactions []tdb_types.Transfer) {
 	failed := false
 
+	user, err := i.accountService.FetchAccountDetails(context.WithValue(context.Background(), "skip_check", true), &requests.FetchAccountDetailsRequest{UserID: uuid.UUID(transactions[0].UserData128.Bytes()).String()})
+	if err != nil {
+		i.log.Error("fetching user details for instant swap processing", zap.Error(err))
+		return
+	}
+
+	stx0, _ := tdb_types.HexStringToUint128(swap.SwapTxID0)
+	stx1, _ := tdb_types.HexStringToUint128(swap.SwapTxID1)
 	fromAmount := utils.FromAmount(transactions[0].Amount)
 	toAmount := utils.FromAmount(transactions[1].Amount)
 	confirmedTransactions := []tdb_types.Transfer{
 		{
-			ID:              tdb_types.ID(),
+			ID:              stx0,
 			CreditAccountID: transactions[0].CreditAccountID,
 			DebitAccountID:  transactions[0].DebitAccountID,
 			Amount:          transactions[0].Amount,
 			Ledger:          transactions[0].Ledger,
 			UserData128:     transactions[0].UserData128,
-			UserData64:      ref.Uint64(),
 			PendingID:       transactions[0].ID,
 			Code:            1,
 			Flags: tdb_types.TransferFlags{
@@ -215,13 +330,12 @@ func (i *instantSwapService) processSwap(ref big.Int, ts time.Time, transactions
 			}.ToUint16(),
 		},
 		{
-			ID:              tdb_types.ID(),
+			ID:              stx1,
 			CreditAccountID: transactions[1].CreditAccountID,
 			DebitAccountID:  transactions[1].DebitAccountID,
 			Amount:          transactions[1].Amount,
 			Ledger:          transactions[1].Ledger,
 			UserData128:     transactions[1].UserData128,
-			UserData64:      ref.Uint64(),
 			PendingID:       transactions[1].ID,
 			Code:            1,
 			Flags: tdb_types.TransferFlags{
@@ -260,112 +374,43 @@ func (i *instantSwapService) processSwap(ref big.Int, ts time.Time, transactions
 
 failedTransfer:
 	data := &responses.InstantSwapResponseData{
-		ID:             tdb_types.ToUint128(ref.Uint64()).String(),
+		ID:             swap.ID,
 		FromCurrency:   Ledgers[transactions[0].Ledger],
 		ToCurrency:     Ledgers[transactions[1].Ledger],
-		ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
+		ExecutionPrice: swap.ExecutionRate,
 		FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 		ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 		CreatedAt:      ts,
 		UpdatedAt:      ts,
-		User:           user,
+		User:           user.Data,
 		Status:         "confirmed",
 		SwapQuotation: &responses.InstantSwapQuotationResponseData{
-			ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
+			ID:             swap.QuotationID,
 			FromCurrency:   Ledgers[transactions[0].Ledger],
 			ToCurrency:     Ledgers[transactions[1].Ledger],
-			QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
+			QuotedPrice:    swap.QuotationRate,
 			QuotedCurrency: Ledgers[transactions[1].Ledger],
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 			ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 			Confirmed:      true,
 			ExpiresAt:      time.Unix(int64(transactions[0].Timeout), 0),
 			CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
-			User:           user,
+			User:           user.Data,
 		},
 	}
 
 	switch failed {
 	case true:
-		i.webhookService.SendInstantSwapFailedEvent(parent, data)
+		i.webhookService.
+			SendInstantSwapFailedEvent(user.Data.WebhookDetails, data)
 
 		// todo: send wallet updated event for debit wallet
 	default:
-		i.webhookService.SendInstantSwapCompletedEvent(parent, data)
+		i.webhookService.
+			SendInstantSwapCompletedEvent(user.Data.WebhookDetails, data)
 
 		// todo: send wallet updated event for credit and debit wallets
 	}
-}
-
-func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *requests.ConfirmInstanSwapRequest) (*responses.Response[*responses.InstantSwapResponseData], error) {
-	user, err := i.accountService.FetchAccountDetails(ctx, &requests.FetchAccountDetailsRequest{UserID: req.UserID})
-	if err != nil {
-		return nil, err
-	}
-
-	quoteRef, err := tdb_types.HexStringToUint128(req.QuotationID)
-	if err != nil {
-		return nil, err
-	}
-	quoteRefInt := quoteRef.BigInt()
-	transactions, err := i.transactionDB.QueryTransfers(tdb_types.QueryFilter{
-		UserData64: quoteRefInt.Uint64(),
-		Limit:      2,
-	})
-	if err != nil {
-		return nil, errors.HandleTxDBError(err)
-	}
-	if len(transactions) != 2 {
-		return nil, errors.NewFailedDependencyError("transaction not found")
-	}
-
-	userId := uuid.UUID(transactions[0].UserData128.Bytes())
-	if userId.String() != user.Data.ID {
-		return nil, errors.NewValidationError("invalid user id provided")
-	}
-
-	fromAmount := utils.FromAmount(transactions[0].Amount)
-	toAmount := utils.FromAmount(transactions[1].Amount)
-
-	refId, ok := i.scheduler.GetConfirmationID(req.QuotationID)
-	if !ok {
-		return nil, errors.NewFailedDependencyError("swap has already been processed")
-	}
-	ref := refId.BigInt()
-	now := time.Now()
-
-	// * stop transfer reversal if not already started
-	i.scheduler.DropTask(req.QuotationID)
-	go i.processSwap(ref, now, transactions, ctx.Value("user").(*models.Account), user.Data)
-
-	return &responses.Response[*responses.InstantSwapResponseData]{
-		Status: "successful",
-		Data: &responses.InstantSwapResponseData{
-			ID:             tdb_types.ToUint128(ref.Uint64()).String(),
-			FromCurrency:   Ledgers[transactions[0].Ledger],
-			ToCurrency:     Ledgers[transactions[1].Ledger],
-			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
-			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
-			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
-			CreatedAt:      now,
-			UpdatedAt:      now,
-			User:           user.Data,
-			Status:         "pending",
-			SwapQuotation: &responses.InstantSwapQuotationResponseData{
-				ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
-				FromCurrency:   Ledgers[transactions[0].Ledger],
-				ToCurrency:     Ledgers[transactions[1].Ledger],
-				QuotedPrice:    utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount/fromAmount),
-				QuotedCurrency: Ledgers[transactions[1].Ledger],
-				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
-				ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
-				Confirmed:      true,
-				ExpiresAt:      time.Unix(int64(transactions[0].Timeout), 0),
-				CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
-				User:           user.Data,
-			},
-		},
-	}, nil
 }
 
 func (i *instantSwapService) FetchInstantSwapTransaction(ctx context.Context, req *requests.FetchInstantSwapTransactionRequest) (*responses.Response[*responses.InstantSwapResponseData], error) {
@@ -373,36 +418,49 @@ func (i *instantSwapService) FetchInstantSwapTransaction(ctx context.Context, re
 	if err != nil {
 		return nil, err
 	}
-	id, err := tdb_types.HexStringToUint128(req.SwapTransactionID)
+
+	row := sq.
+		Select("instant_swaps.id", "quotation_id", "from_wallet_id", "to_wallet_id", "quotation_rate", "execution_rate", "swap_tx_id_0", "swap_tx_id_1", "quote_tx_id_0", "quote_tx_id_1").
+		From("instant_swaps").
+		Where(sq.Eq{"id": req.SwapTransactionID}).
+		RunWith(i.dataDB).
+		QueryRowContext(ctx)
+	var swap models.InstantSwap
+	err = row.Scan(
+		&swap.ID,
+		&swap.QuotationID,
+		&swap.FromWalletID,
+		&swap.ToWalletID,
+		&swap.QuotationRate,
+		&swap.ExecutionRate,
+		&swap.SwapTxID0,
+		&swap.SwapTxID1,
+		&swap.QuoteTxID0,
+		&swap.QuoteTxID1,
+	)
 	if err != nil {
-		return nil, err
+		return nil, errors.HandleDataDBError(err)
 	}
-	idInt := id.BigInt()
-	res, err := i.transactionDB.QueryTransfers(tdb_types.QueryFilter{
-		UserData128: tdb_types.BytesToUint128(uuid.MustParse(user.Data.ID)),
-		UserData64:  idInt.Uint64(),
-		Limit:       9000,
-		Code:        1,
-		Flags: tdb_types.QueryFilterFlags{
-			Reversed: true,
-		}.ToUint32(),
-	})
+
+	stx0, _ := tdb_types.HexStringToUint128(swap.SwapTxID0)
+	stx1, _ := tdb_types.HexStringToUint128(swap.SwapTxID1)
+	swaps, err := i.transactionDB.LookupTransfers([]tdb_types.Uint128{stx0, stx1})
 	if err != nil {
 		return nil, errors.HandleTxDBError(err)
 	}
-	quoteIds := make([]tdb_types.Uint128, 0)
-	for _, tx := range res {
-		quoteIds = append(quoteIds, tx.PendingID)
-	}
-	res2, err := i.transactionDB.LookupTransfers(quoteIds)
+
+	qtx0, _ := tdb_types.HexStringToUint128(swap.QuoteTxID0)
+	qtx1, _ := tdb_types.HexStringToUint128(swap.QuoteTxID1)
+	quotes, err := i.transactionDB.LookupTransfers([]tdb_types.Uint128{qtx0, qtx1})
 	if err != nil {
 		return nil, errors.HandleTxDBError(err)
 	}
-	if len(res)+len(res2) < 4 {
+
+	if len(swaps)+len(quotes) < 4 {
 		return nil, errors.NewNotFoundError("swap not found")
 	}
 
-	data, err := i.groupTransactions(append(res, res2...), user.Data)
+	data, err := i.groupTransactions(slices.Concat(swaps, quotes), user.Data, swap)
 	if err != nil {
 		return nil, err
 	}
@@ -419,27 +477,57 @@ func (i *instantSwapService) GetInstantSwapTransactions(ctx context.Context, req
 		return nil, err
 	}
 
-	res, err := i.transactionDB.QueryTransfers(tdb_types.QueryFilter{
-		UserData128: tdb_types.BytesToUint128(uuid.MustParse(user.Data.ID)),
-		Limit:       9000,
-		Code:        1,
-		Flags: tdb_types.QueryFilterFlags{
-			Reversed: true,
-		}.ToUint32(),
-	})
+	rows, err := sq.
+		Select("instant_swaps.id", "quotation_id", "from_wallet_id", "to_wallet_id", "quotation_rate", "execution_rate", "swap_tx_id_0", "swap_tx_id_1", "quote_tx_id_0", "quote_tx_id_1").
+		From("instant_swaps").
+		Join("wallets on wallets.id = instant_swaps.from_wallet_id").
+		Where(sq.Eq{"wallets.account_id": user.Data.ID}).
+		RunWith(i.dataDB).
+		QueryContext(ctx)
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
+	}
+	var swaps = []models.InstantSwap{}
+	var swapIds = []tdb_types.Uint128{}
+	var quoteIds = []tdb_types.Uint128{}
+	for rows.Next() {
+		var swap = models.InstantSwap{}
+		err = rows.Scan(
+			&swap.ID,
+			&swap.QuotationID,
+			&swap.FromWalletID,
+			&swap.ToWalletID,
+			&swap.QuotationRate,
+			&swap.ExecutionRate,
+			&swap.SwapTxID0,
+			&swap.SwapTxID1,
+			&swap.QuoteTxID0,
+			&swap.QuoteTxID1,
+		)
+		if err != nil {
+			return nil, errors.HandleDataDBError(err)
+		}
+
+		stx0, _ := tdb_types.HexStringToUint128(swap.SwapTxID0)
+		stx1, _ := tdb_types.HexStringToUint128(swap.SwapTxID1)
+		qtx0, _ := tdb_types.HexStringToUint128(swap.QuoteTxID0)
+		qtx1, _ := tdb_types.HexStringToUint128(swap.QuoteTxID1)
+
+		swaps = append(swaps, swap)
+		swapIds = append(swapIds, stx0, stx1)
+		quoteIds = append(quoteIds, qtx0, qtx1)
+	}
+
+	transfers, err := i.transactionDB.LookupTransfers(swapIds)
 	if err != nil {
 		return nil, errors.HandleTxDBError(err)
 	}
-	quoteIds := make([]tdb_types.Uint128, 0)
-	for _, tx := range res {
-		quoteIds = append(quoteIds, tx.PendingID)
-	}
-	res2, err := i.transactionDB.LookupTransfers(quoteIds)
+	pendingTxs, err := i.transactionDB.LookupTransfers(quoteIds)
 	if err != nil {
 		return nil, errors.HandleTxDBError(err)
 	}
 
-	data, err := i.groupTransactions(append(res, res2...), user.Data)
+	data, err := i.groupTransactions(slices.Concat(transfers, pendingTxs), user.Data, swaps...)
 	if err != nil {
 		return nil, err
 	}
@@ -450,71 +538,72 @@ func (i *instantSwapService) GetInstantSwapTransactions(ctx context.Context, req
 	}, nil
 }
 
-func (i *instantSwapService) groupTransactions(txs []tdb_types.Transfer, user *models.Account) ([]*responses.InstantSwapResponseData, error) {
-	txMap := map[string][2]tdb_types.Transfer{}
-	pendingTxMap := map[string]tdb_types.Transfer{}
-	txIds := []string{}
+func (i *instantSwapService) groupTransactions(txs []tdb_types.Transfer, user *models.Account, swaps ...models.InstantSwap) ([]*responses.InstantSwapResponseData, error) {
+	result := make([]*responses.InstantSwapResponseData, 0, len(swaps))
+	swapMap := map[string]tdb_types.Transfer{}
+	quoteMap := map[string]tdb_types.Transfer{}
 	for _, tx := range txs {
-		crAccount := tx.CreditAccountID.BigInt()
 		switch {
 		case tx.TransferFlags().Pending:
-			id := tx.ID.String()
-			pendingTxMap[id] = tx
+			quoteMap[tx.ID.String()] = tx
 		default:
-			id := tdb_types.ToUint128(tx.UserData64).String()
-			if _, ok := txMap[id]; !ok {
-				txIds = append(txIds, id)
-				txMap[id] = [2]tdb_types.Transfer{}
-			}
-			switch tx.Ledger == uint32(crAccount.Uint64()) {
-			case true:
-				txMap[id] = [2]tdb_types.Transfer{tx, txMap[id][1]}
-			default:
-				txMap[id] = [2]tdb_types.Transfer{txMap[id][0], tx}
-			}
+			swapMap[tx.ID.String()] = tx
 		}
 	}
 
-	result := make([]*responses.InstantSwapResponseData, 0)
-	for _, id := range txIds {
-		transactions := txMap[id]
-		quotations := [2]tdb_types.Transfer{pendingTxMap[transactions[0].PendingID.String()], pendingTxMap[transactions[1].PendingID.String()]}
+	for _, swap := range swaps {
+		status := "pending"
+		stx0, ok1 := swapMap[swap.SwapTxID0]
+		stx1, ok2 := swapMap[swap.SwapTxID1]
 
-		status := ""
-		switch {
-		case transactions[0].TransferFlags().PostPendingTransfer:
-			status = "confirmed"
-		case time.UnixMicro(int64(quotations[0].Timestamp / 1000)).Add(time.Second * 12).Before(time.UnixMicro(int64(transactions[0].Timestamp / 1000))):
-			status = "reversed"
-		default:
-			status = "failed"
+		qtx0 := quoteMap[swap.QuoteTxID0]
+		qtx1 := quoteMap[swap.QuoteTxID1]
+		if ok1 && ok2 {
+			switch {
+			case stx0.TransferFlags().PostPendingTransfer:
+				status = "confirmed"
+			case time.UnixMicro(int64(qtx0.Timestamp / 1000)).Add(time.Second * 12).Before(time.UnixMicro(int64(stx0.Timestamp / 1000))):
+				status = "reversed"
+			default:
+				status = "failed"
+			}
 		}
-
-		result = append(result, &responses.InstantSwapResponseData{
-			ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
-			FromCurrency:   Ledgers[transactions[0].Ledger],
-			ToCurrency:     Ledgers[transactions[1].Ledger],
-			ExecutionPrice: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)/utils.FromAmount(transactions[0].Amount)),
-			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
-			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
-			CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
-			UpdatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
+		data := &responses.InstantSwapResponseData{
+			ID:             swap.ID,
+			FromCurrency:   Ledgers[qtx0.Ledger],
+			ToCurrency:     Ledgers[qtx1.Ledger],
+			ExecutionPrice: swap.ExecutionRate,
+			FromAmount:     utils.ApproximateAmount(Ledgers[qtx0.Ledger], utils.FromAmount(qtx0.Amount)),
+			ReceivedAmount: utils.ApproximateAmount(Ledgers[qtx1.Ledger], utils.FromAmount(qtx1.Amount)),
+			CreatedAt:      time.UnixMicro(int64(qtx0.Timestamp / 1000)),
+			UpdatedAt:      time.UnixMicro(int64(qtx0.Timestamp / 1000)),
 			User:           user,
 			Status:         status,
 			SwapQuotation: &responses.InstantSwapQuotationResponseData{
-				ID:             tdb_types.ToUint128(quotations[0].UserData64).String(),
-				FromCurrency:   Ledgers[quotations[0].Ledger],
-				ToCurrency:     Ledgers[quotations[1].Ledger],
-				QuotedPrice:    utils.ApproximateAmount(Ledgers[quotations[1].Ledger], utils.FromAmount(quotations[1].Amount)/utils.FromAmount(quotations[0].Amount)),
-				QuotedCurrency: Ledgers[quotations[1].Ledger],
-				FromAmount:     utils.ApproximateAmount(Ledgers[quotations[0].Ledger], utils.FromAmount(quotations[0].Amount)),
-				ToAmount:       utils.ApproximateAmount(Ledgers[quotations[1].Ledger], utils.FromAmount(quotations[1].Amount)),
+				ID:             swap.QuotationID,
+				FromCurrency:   Ledgers[qtx0.Ledger],
+				ToCurrency:     Ledgers[qtx1.Ledger],
+				QuotedPrice:    swap.QuotationRate,
+				QuotedCurrency: Ledgers[qtx1.Ledger],
+				FromAmount:     utils.ApproximateAmount(Ledgers[qtx0.Ledger], utils.FromAmount(qtx0.Amount)),
+				ToAmount:       utils.ApproximateAmount(Ledgers[qtx1.Ledger], utils.FromAmount(qtx1.Amount)),
 				Confirmed:      status != "reversed",
-				ExpiresAt:      time.UnixMicro(int64(quotations[0].Timestamp / 1000)).Add(12 * time.Second),
-				CreatedAt:      time.UnixMicro(int64(quotations[0].Timestamp / 1000)),
+				ExpiresAt:      time.UnixMicro(int64(qtx0.Timestamp / 1000)).Add(12 * time.Second),
+				CreatedAt:      time.UnixMicro(int64(qtx0.Timestamp / 1000)),
 				User:           user,
 			},
-		})
+		}
+		if ok1 && ok2 {
+			data.FromAmount = utils.ApproximateAmount(Ledgers[stx0.Ledger], utils.FromAmount(stx0.Amount))
+			data.ReceivedAmount = utils.ApproximateAmount(Ledgers[stx1.Ledger], utils.FromAmount(stx1.Amount))
+			data.CreatedAt = time.UnixMicro(int64(stx0.Timestamp / 1000))
+			data.UpdatedAt = time.UnixMicro(int64(stx0.Timestamp / 1000))
+		}
+		if data.FromCurrency == "ngn" {
+			data.SwapQuotation.QuotedCurrency = data.FromCurrency
+		}
+
+		result = append(result, data)
 	}
 
 	return result, nil

@@ -65,6 +65,7 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 	}
+
 	password, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, err
@@ -80,13 +81,30 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 	// * create user account
 	_, err = sq.
 		Insert("accounts").
-		Columns("id", "sn", "display_name", "email", "password", "first_name", "last_name", "created_at", "updated_at", "is_main_account").
-		Values(account.ID, account.SN, account.DisplayName, account.Email, string(password), account.FirstName, account.LastName, now, now, true).
+		Columns("id", "sn", "display_name", "email", "first_name", "last_name", "created_at", "updated_at", "is_main_account").
+		Values(account.ID, account.SN, account.DisplayName, account.Email, account.FirstName, account.LastName, now, now, true).
 		RunWith(tx).
 		ExecContext(ctx)
 
 	if err != nil {
-		return nil, err
+		return nil, errors.HandleDataDBError(err)
+	}
+
+	credentials := &models.Credentials{
+		ID:       account.ID,
+		Password: string(password),
+	}
+
+	// * create user access token to authenticate requests
+	_, err = sq.
+		Insert("credentials").
+		Columns("id", "password").
+		Values(credentials.ID, credentials.Password).
+		RunWith(tx).
+		ExecContext(ctx)
+
+	if err != nil {
+		return nil, errors.HandleDataDBError(err)
 	}
 
 	accessToken := &models.AccessToken{
@@ -106,7 +124,7 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 		ExecContext(ctx)
 
 	if err != nil {
-		return nil, err
+		return nil, errors.HandleDataDBError(err)
 	}
 
 	wallets := make([]tdb_types.Account, 0, len(Ledgers))
@@ -158,7 +176,7 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 			DebitAccountID:  tdb_types.ToUint128(uint64(wallet.Ledger)),
 			Ledger:          wallet.Ledger,
 			Code:            3,
-			Amount:          utils.ToAmount(9999),
+			Amount:          utils.ToAmount(10000000),
 		})
 	}
 	seedRes, err := a.transactionDB.CreateTransfers(seed)
@@ -184,22 +202,24 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 }
 
 func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.FetchAccountDetailsRequest) (*responses.Response[*models.Account], error) {
-	parent := ctx.Value("user").(*models.Account)
-	if req.UserID == parent.ID {
+	parent, ok := ctx.Value("user").(*models.Account)
+	if ok && req.UserID == parent.ID {
 		req.UserID = "me"
 	}
 	stmt := sq.
-		Select("id", "sn", "display_name", "email", "first_name", "last_name", "callback_url", "created_at", "updated_at").
-		From("accounts")
+		Select("accounts.id", "sn", "display_name", "email", "first_name", "last_name", "created_at", "updated_at", "callback_url", "webhook_key").
+		From("accounts").
+		LeftJoin("webhook_details on webhook_details.id = accounts.id OR webhook_details.id = accounts.parent_id")
 
 	switch req.UserID {
 	case "me":
-		stmt = stmt.Where(sq.Eq{"is_main_account": true, "id": parent.ID})
+		parent := ctx.Value("user").(*models.Account)
+		stmt = stmt.Where(sq.Eq{"is_main_account": true, "accounts.id": parent.ID})
 	default:
 		if ctx.Value("skip_check") == nil {
-			stmt = stmt.Where(sq.Eq{"id": req.UserID, "parent_id": parent.ID})
+			stmt = stmt.Where(sq.Eq{"accounts.id": req.UserID, "parent_id": parent.ID})
 		} else {
-			stmt = stmt.Where(sq.Eq{"id": req.UserID})
+			stmt = stmt.Where(sq.Eq{"accounts.id": req.UserID})
 		}
 	}
 
@@ -212,7 +232,7 @@ func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.
 		return nil, errors.NewNotFoundError("user not found")
 	}
 	var account = &models.Account{}
-	err := row.Scan(&account.ID, &account.SN, &account.DisplayName, &account.Email, &account.FirstName, &account.LastName, &account.CallbackURL, &account.CreatedAt, &account.UpdatedAt)
+	err := row.Scan(&account.ID, &account.SN, &account.DisplayName, &account.Email, &account.FirstName, &account.LastName, &account.CreatedAt, &account.UpdatedAt, &account.WebhookDetails.CallbackURL, &account.WebhookDetails.WebhookKey)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
 	}
@@ -225,9 +245,10 @@ func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.
 
 func (a *accountService) GetAccountByAccessToken(ctx context.Context, token string) (*models.Account, error) {
 	row := sq.
-		Select("accounts.id", "email", "callback_url", "display_name", "webhook_key").
+		Select("accounts.id", "accounts.email", "webhook_details.callback_url", "accounts.display_name", "webhook_details.webhook_key").
 		From("access_tokens").
 		Join("accounts on access_tokens.account_id = accounts.id").
+		LeftJoin("webhook_details on webhook_details.id = accounts.id").
 		Where(sq.Eq{"token": token}).
 		RunWith(a.dataDB).
 		QueryRowContext(ctx)
@@ -236,7 +257,7 @@ func (a *accountService) GetAccountByAccessToken(ctx context.Context, token stri
 		return nil, errors.NewNotFoundError("token not found")
 	}
 	var account = &models.Account{}
-	err := row.Scan(&account.ID, &account.Email, &account.CallbackURL, &account.DisplayName, &account.WebhookKey)
+	err := row.Scan(&account.ID, &account.Email, &account.WebhookDetails.CallbackURL, &account.DisplayName, &account.WebhookDetails.WebhookKey)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
 	}
@@ -246,14 +267,11 @@ func (a *accountService) GetAccountByAccessToken(ctx context.Context, token stri
 
 func (a *accountService) UpdateWebHookURL(ctx context.Context, req *requests.UpdateWebhookURLRequest) error {
 	parent := ctx.Value("user").(*models.Account)
-	update := sq.Eq{"callback_url": req.CallbackURL}
-	if req.WebhookKey != nil && *req.WebhookKey != "" {
-		update["webhook_key"] = *req.WebhookKey
-	}
+
 	_, err := sq.
-		Update("accounts").
-		SetMap(update).
-		Where(sq.Eq{"id": parent.ID, "is_main_account": true}).
+		Replace("webhook_details").
+		Columns("id", "callback_url", "webhook_key").
+		Values(parent.ID, req.CallbackURL, req.WebhookKey).
 		RunWith(a.dataDB).
 		ExecContext(ctx)
 	if err != nil {
@@ -314,15 +332,6 @@ func (a *accountService) CreateSubAccount(ctx context.Context, req *requests.Cre
 		})
 	}
 
-	// * create wallet accounts in financial transaction database
-	txRes, err := a.transactionDB.CreateAccounts(wallets)
-	if err != nil {
-		return nil, errors.HandleTxDBError(err)
-	}
-	if len(txRes) > 0 {
-		return nil, errors.NewUnknownError(txRes[0].Result.String())
-	}
-
 	// * store wallets ref in wallets collection
 	walletsInsertStmt := sq.
 		Insert("wallets").
@@ -337,6 +346,15 @@ func (a *accountService) CreateSubAccount(ctx context.Context, req *requests.Cre
 		ExecContext(ctx)
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
+	}
+
+	// * create wallet accounts in financial transaction database
+	txRes, err := a.transactionDB.CreateAccounts(wallets)
+	if err != nil {
+		return nil, errors.HandleTxDBError(err)
+	}
+	if len(txRes) > 0 {
+		return nil, errors.NewUnknownError(txRes[0].Result.String())
 	}
 
 	if err = tx.Commit(); err != nil {
@@ -391,7 +409,7 @@ func (a *accountService) FetchAllSubAccounts(ctx context.Context, req *requests.
 	parent := ctx.Value("user").(*models.Account)
 
 	rows, err := sq.
-		Select("id", "sn", "display_name", "email", "first_name", "last_name", "callback_url", "created_at", "updated_at").
+		Select("id", "sn", "display_name", "email", "first_name", "last_name", "created_at", "updated_at").
 		From("accounts").
 		Where("parent_id", parent.ID).
 		RunWith(a.dataDB).
@@ -403,7 +421,7 @@ func (a *accountService) FetchAllSubAccounts(ctx context.Context, req *requests.
 	res := make([]*models.Account, 0)
 	for rows.Next() {
 		acc := &models.Account{}
-		err := rows.Scan(&acc.ID, &acc.SN, &acc.DisplayName, &acc.Email, &acc.FirstName, &acc.LastName, &acc.CallbackURL, &acc.CreatedAt, &acc.UpdatedAt)
+		err := rows.Scan(&acc.ID, &acc.SN, &acc.DisplayName, &acc.Email, &acc.FirstName, &acc.LastName, &acc.CreatedAt, &acc.UpdatedAt)
 		if err != nil {
 			return nil, errors.HandleDataDBError(err)
 		}
