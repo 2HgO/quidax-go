@@ -1,4 +1,7 @@
-FROM golang:1.22.4
+FROM golang:1.22.4-alpine
+
+RUN apk add build-base
+RUN apk --no-cache add openssl
 
 RUN mkdir -p /app
 
@@ -12,4 +15,9 @@ RUN go mod download
 
 COPY . .
 
-CMD [ "go", "run", "." ]
+RUN GIT_TERMINAL_PROMPT=1 \
+    CGO_CFLAGS='-O2 -g -w' \
+    CGO_ENABLED=1 \
+    go build -v --installsuffix cgo --ldflags="-s" -o quidax-go
+
+CMD ["./quidax-go"]

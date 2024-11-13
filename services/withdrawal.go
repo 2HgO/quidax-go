@@ -309,10 +309,10 @@ func (w *withdrawalService) populateWithdrawals(ctx context.Context, withdrawals
 		withdrawal := withdrawals[tx.ID.String()]
 		wallet := wallets[withdrawal.Wallet.ID]
 
-		amount := tx.Amount.BigInt()
+		// amount := tx.Amount.BigInt()
 		withdrawal.Wallet = wallet
 		withdrawal.User = wallet.User
-		withdrawal.Amount = utils.ApproximateAmount(Ledgers[tx.Ledger], float64(float32(amount.Uint64()))*1e-9)
+		withdrawal.Amount = utils.ApproximateAmount(Ledgers[tx.Ledger], utils.FromAmount(tx.Amount))
 		withdrawal.Currency = Ledgers[tx.Ledger]
 		withdrawal.Type = withdrawal.Recipient.Type
 		withdrawal.Fee = 0
