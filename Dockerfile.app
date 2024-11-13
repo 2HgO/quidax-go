@@ -1,7 +1,7 @@
 FROM golang:1.22.4
 
-RUN apk add build-base
-RUN apk --no-cache add openssl
+# RUN apk add build-base
+# RUN apk --no-cache add openssl
 
 RUN mkdir -p /app
 
