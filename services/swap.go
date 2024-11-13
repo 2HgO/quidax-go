@@ -285,7 +285,7 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 			User:           user.Data,
 			Status:         "pending",
 			SwapQuotation: &responses.InstantSwapQuotationResponseData{
-				ID:             tdb_types.ToUint128(transactions[0].UserData64).String(),
+				ID:             swap.QuotationID,
 				FromCurrency:   Ledgers[transactions[0].Ledger],
 				ToCurrency:     Ledgers[transactions[1].Ledger],
 				QuotedPrice:    swap.QuotationRate,
