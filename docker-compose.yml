@@ -30,7 +30,7 @@ services:
     build:
       dockerfile: Dockerfile.tigerbeetle
     # command: start --addresses=repl1.docker.internal:3000,repl2.docker.internal:3001,repl3.docker.internal:3002 /data/quidax_01.tigerbeetle
-    command: start --addresses=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002 --cache-grid=256MiB /data/quidax_01.tigerbeetle
+    command: start --addresses=10.5.0.5:3000 --cache-grid=256MiB /data/quidax_01.tigerbeetle
     restart: always
     ports:
       - '3000:3000'
@@ -40,9 +40,9 @@ services:
       - IPC_LOCK
     volumes:
       - ./data/tigerbeetle:/data
-    depends_on:
-      - txdbrepl2
-      - txdbrepl3
+    # depends_on:
+    #   - txdbrepl2
+    #   - txdbrepl3
     security_opt:
       - "seccomp=unconfined"
     privileged: true
@@ -50,6 +50,7 @@ services:
     environment:
       - CLUSTERNAME=quidax_01
       - CLUSTERNUMBER=0
+      - CLUSTERCOUNT=1
     networks:
       quidax-go:
         ipv4_address: 10.5.0.5
@@ -73,6 +74,7 @@ services:
     environment:
       - CLUSTERNAME=quidax_02
       - CLUSTERNUMBER=1
+      - CLUSTERCOUNT=3
     depends_on:
       - txdbrepl3
     networks:
@@ -97,6 +99,7 @@ services:
     environment:
       - CLUSTERNAME=quidax_03
       - CLUSTERNUMBER=2
+      - CLUSTERCOUNT=3
     networks:
       quidax-go:
         ipv4_address: 10.5.0.7
@@ -111,7 +114,7 @@ services:
     environment:
       - CGO_ENABLED=1
       - DATA_DB_URL=10.5.0.4:3306
-      - TX_DB_URL=10.5.0.5:3000,10.5.0.6:3001,10.5.0.7:3002
+      - TX_DB_URL=10.5.0.5:3000
     depends_on:
       - txdbrepl1
       - datadb
