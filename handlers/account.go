@@ -11,15 +11,15 @@ import (
 )
 
 type AccountHandler interface {
-	CreateAccount(w http.ResponseWriter, r *http.Request)
-	UpdateWebHookURL(w http.ResponseWriter, r *http.Request)
+	CreateAccount(http.ResponseWriter, *http.Request)
+	UpdateWebHookURL(http.ResponseWriter, *http.Request)
+	
+	FetchAccountDetails(http.ResponseWriter, *http.Request)
+	CreateSubAccount(http.ResponseWriter, *http.Request)
+	EditSubAccountDetails(http.ResponseWriter, *http.Request)
+	FetchAllSubAccounts(http.ResponseWriter, *http.Request)
 
-	FetchAccountDetails(w http.ResponseWriter, r *http.Request)
-	CreateSubAccount(w http.ResponseWriter, r *http.Request)
-	EditSubAccountDetails(w http.ResponseWriter, r *http.Request)
-	FetchAllSubAccounts(w http.ResponseWriter, r *http.Request)
-
-	ServeHttp(*http.ServeMux)
+	Handler
 }
 
 func NewAccountHandler(accountService services.AccountService, middlewares MiddleWareHandler, log *zap.Logger) AccountHandler {

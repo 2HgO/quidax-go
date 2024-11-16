@@ -18,12 +18,13 @@ import (
 )
 
 type WebhookService interface {
-	SendWalletUpdatedEvent(whDetails models.WebhookDetails, wallet *responses.UserWalletResponseData) (self WebhookService)
-	SendInstantSwapCompletedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendInstantSwapFailedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendInstantSwapReversedEvent(whDetails models.WebhookDetails, swap *responses.InstantSwapResponseData) (self WebhookService)
-	SendWithdrawalCompletedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
-	SendWithdrawalFailedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService)
+	SendWalletUpdatedEvent(models.WebhookDetails, *responses.UserWalletResponseData) (self WebhookService)
+	SendInstantSwapCompletedEvent(models.WebhookDetails, *responses.InstantSwapResponseData) (self WebhookService)
+	SendInstantSwapFailedEvent(models.WebhookDetails, *responses.InstantSwapResponseData) (self WebhookService)
+	SendInstantSwapReversedEvent(models.WebhookDetails, *responses.InstantSwapResponseData) (self WebhookService)
+	SendWithdrawalCompletedEvent(models.WebhookDetails, *responses.WithdrawalResponseData) (self WebhookService)
+	SendWithdrawalFailedEvent(models.WebhookDetails, *responses.WithdrawalResponseData) (self WebhookService)
+	SendDepositSuccessfulEvent(models.WebhookDetails, *responses.DepositResponseData) (self WebhookService)
 }
 
 type webhookService struct {
@@ -32,7 +33,7 @@ type webhookService struct {
 
 func NewWebhookService(accountService AccountService, log *zap.Logger) WebhookService {
 	return &webhookService{
-		service: service{
+		service{
 			accountService: accountService,
 			log:            log,
 		},
@@ -125,4 +126,8 @@ func (w *webhookService) SendWithdrawalCompletedEvent(whDetails models.WebhookDe
 
 func (w *webhookService) SendWithdrawalFailedEvent(whDetails models.WebhookDetails, withdrawal *responses.WithdrawalResponseData) (self WebhookService) {
 	return w.sendEvent(whDetails, models.WithdrawalFailed_WebhookEvent, withdrawal)
+}
+
+func (w *webhookService) SendDepositSuccessfulEvent(whDetails models.WebhookDetails, data *responses.DepositResponseData) (self WebhookService) {
+	return w.sendEvent(whDetails, models.DepositSuccessful_WebhookEvent, data)
 }

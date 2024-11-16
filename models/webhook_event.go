@@ -18,6 +18,8 @@ const (
 
 	WithdrawalCompleted_WebhookEvent
 	WithdrawalFailed_WebhookEvent
+
+	DepositSuccessful_WebhookEvent
 )
 
 func (w WebhookEvent) String() string {
@@ -34,6 +36,8 @@ func (w WebhookEvent) String() string {
 		return "withdrawal.completed"
 	case WithdrawalFailed_WebhookEvent:
 		return "withdrawal.failed"
+	case DepositSuccessful_WebhookEvent:
+		return "deposit.successful"
 	default:
 		panic("unreachable")
 	}
