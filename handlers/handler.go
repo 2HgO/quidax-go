@@ -12,6 +12,7 @@ type handler struct {
 	walletService     services.WalletService
 	swapService       services.InstantSwapService
 	withdrawalService services.WithdrawalService
+	depositService    services.DepositService
 	middlewares       MiddleWareHandler
 
 	log *zap.Logger

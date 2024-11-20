@@ -12,10 +12,10 @@ import (
 )
 
 type WalletHandler interface {
-	FetchUserWallet(w http.ResponseWriter, r *http.Request)
-	FetchUserWallets(w http.ResponseWriter, r *http.Request)
+	FetchUserWallet(http.ResponseWriter, *http.Request)
+	FetchUserWallets(http.ResponseWriter, *http.Request)
 
-	ServeHttp(*http.ServeMux)
+	Handler
 }
 
 func NewWalletHandler(accountService services.AccountService, walletService services.WalletService, middlewares MiddleWareHandler, log *zap.Logger) WalletHandler {
@@ -75,4 +75,27 @@ func (ws *walletHandler) FetchUserWallets(w http.ResponseWriter, r *http.Request
 	}
 
 	utils.JSON(w, 200, res)
+}
+
+func (ws *walletHandler) FetchWalletAddress(w http.ResponseWriter, r *http.Request) {
+	req := utils.Bind[requests.FetchUserWalletRequest](r)
+
+	walletRes, err := ws.walletService.FetchUserWallet(r.Context(), req)
+	if err != nil {
+		errors.AsAppError(err).Serialize(w)
+		return
+	}
+	wallet := walletRes.Data
+	utils.JSON(w, 200, responses.Response[any]{
+		Status: "successful",
+		Data: map[string]any{
+			"id":              wallet.ID,
+			"reference":       wallet.ID,
+			"currency":        wallet.Currency,
+			"address":         "",
+			"destination_tag": "",
+			"total_payments":  "0",
+			"network":         "",
+		},
+	})
 }

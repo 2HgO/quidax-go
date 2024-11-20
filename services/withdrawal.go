@@ -18,14 +18,14 @@ import (
 )
 
 type WithdrawalService interface {
-	CreateUserWithdrawal(ctx context.Context, req *requests.CreateWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
-	FetchWithdrawal(ctx context.Context, req *requests.FetchWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
-	FetchWithdrawals(ctx context.Context, req *requests.FetchWithdrawalsRequest) (*responses.Response[[]*responses.WithdrawalResponseData], error)
+	CreateUserWithdrawal(context.Context, *requests.CreateWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
+	FetchWithdrawal(context.Context, *requests.FetchWithdrawalRequest) (*responses.Response[*responses.WithdrawalResponseData], error)
+	FetchWithdrawals(context.Context, *requests.FetchWithdrawalsRequest) (*responses.Response[[]*responses.WithdrawalResponseData], error)
 }
 
 func NewWithdrawalService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, walletService WalletService, webhookService WebhookService, log *zap.Logger) WithdrawalService {
 	return &withdrawalService{
-		service: service{
+		service{
 			transactionDB:  txDatabase,
 			dataDB:         dataDatabase,
 			accountService: accountService,
@@ -151,7 +151,7 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		Wallet:          wallet.Data,
 		User:            wallet.Data.User,
 	}
-	go w.webhookService.SendWithdrawalCompletedEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
+	go w.webhookService.SendWithdrawalSuccessfulEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
 
 	return &responses.Response[*responses.WithdrawalResponseData]{
 		Data: data,

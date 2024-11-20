@@ -11,13 +11,13 @@ import (
 )
 
 type InstantSwapHandler interface {
-	CreateInstantSwap(w http.ResponseWriter, r *http.Request)
-	ConfirmInstantSwap(w http.ResponseWriter, r *http.Request)
-	FetchInstantSwapTransaction(w http.ResponseWriter, r *http.Request)
-	GetInstantSwapTransactions(w http.ResponseWriter, r *http.Request)
-	TemporaryInstantSwapQuotation(w http.ResponseWriter, r *http.Request)
+	CreateInstantSwap(http.ResponseWriter, *http.Request)
+	ConfirmInstantSwap(http.ResponseWriter, *http.Request)
+	FetchInstantSwapTransaction(http.ResponseWriter, *http.Request)
+	GetInstantSwapTransactions(http.ResponseWriter, *http.Request)
+	TemporaryInstantSwapQuotation(http.ResponseWriter, *http.Request)
 
-	ServeHttp(*http.ServeMux)
+	Handler
 }
 
 func NewInstantSwapHandler(accountService services.AccountService, swapService services.InstantSwapService, middlewares MiddleWareHandler, log *zap.Logger) InstantSwapHandler {

@@ -11,12 +11,12 @@ import (
 )
 
 type WithdrawalHandler interface {
-	CreateWithdrawal(w http.ResponseWriter, r *http.Request)
-	FetchWithdrawal(w http.ResponseWriter, r *http.Request)
-	FetchWithdrawalByRef(w http.ResponseWriter, r *http.Request)
-	FetchWithdrawals(w http.ResponseWriter, r *http.Request)
+	CreateWithdrawal(http.ResponseWriter, *http.Request)
+	FetchWithdrawal(http.ResponseWriter, *http.Request)
+	FetchWithdrawalByRef(http.ResponseWriter, *http.Request)
+	FetchWithdrawals(http.ResponseWriter, *http.Request)
 
-	ServeHttp(*http.ServeMux)
+	Handler
 }
 
 func NewWithdrawalHandler(accountService services.AccountService, withdrawalService services.WithdrawalService, middlewares MiddleWareHandler, log *zap.Logger) WithdrawalHandler {

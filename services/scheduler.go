@@ -19,14 +19,13 @@ import (
 )
 
 type SchedulerService interface {
-	DropTask(taskID string)
-	ScheduleInstantSwapReversal(id string, dueAt time.Time)
+	ScheduleInstantSwapReversal(string, time.Time)
 	// ScheduleEventRetry(parent *models.Account, event *models.Webhook)
 }
 
 func NewSchedulerService(dataDB *sql.DB, txDatabase tdb.Client, scheduler *tasks.Scheduler, accountService AccountService, walletService WalletService, webhookService WebhookService, log *zap.Logger) SchedulerService {
 	return &schedulerService{
-		service: service{
+		service{
 			transactionDB:  txDatabase,
 			webhookService: webhookService,
 			accountService: accountService,
@@ -34,17 +33,13 @@ func NewSchedulerService(dataDB *sql.DB, txDatabase tdb.Client, scheduler *tasks
 			log:            log,
 			dataDB:         dataDB,
 		},
-		scheduler: scheduler,
+		scheduler,
 	}
 }
 
 type schedulerService struct {
 	service
 	scheduler *tasks.Scheduler
-}
-
-func (s *schedulerService) DropTask(taskID string) {
-	s.scheduler.Del(taskID)
 }
 
 func (s *schedulerService) ScheduleInstantSwapReversal(id string, dueAt time.Time) {

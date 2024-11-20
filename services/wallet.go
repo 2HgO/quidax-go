@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/2HgO/quidax-go/errors"
 	"github.com/2HgO/quidax-go/models"
@@ -20,18 +21,19 @@ import (
 )
 
 type WalletService interface {
-	FetchUserWallets(ctx context.Context, req *requests.FetchUserWalletsRequest) (*responses.Response[[]*responses.UserWalletResponseData], error)
-	FetchUserWallet(ctx context.Context, req *requests.FetchUserWalletRequest) (*responses.Response[*responses.UserWalletResponseData], error)
+	FetchUserWallets(context.Context, *requests.FetchUserWalletsRequest) (*responses.Response[[]*responses.UserWalletResponseData], error)
+	FetchUserWallet(context.Context, *requests.FetchUserWalletRequest) (*responses.Response[*responses.UserWalletResponseData], error)
 
-	LookupWallets(ctx context.Context, ids []string) (map[string]*responses.UserWalletResponseData, error)
+	LookupWallets(context.Context, []string) (map[string]*responses.UserWalletResponseData, error)
 }
 
-func NewWalletService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, log *zap.Logger) WalletService {
+func NewWalletService(txDatabase tdb.Client, dataDatabase *sql.DB, accountService AccountService, webhookService WebhookService, log *zap.Logger) WalletService {
 	w := &walletService{
-		service: service{
+		service{
 			transactionDB:  txDatabase,
 			dataDB:         dataDatabase,
 			accountService: accountService,
+			webhookService: webhookService,
 			log:            log,
 		},
 	}
@@ -119,12 +121,17 @@ func (w *walletService) FetchUserWallets(ctx context.Context, req *requests.Fetc
 		balance = balance.Sub(balance, &pendingDebits)
 		wallet := walletsMap[res[i].ID.String()]
 		data[i] = &responses.UserWalletResponseData{
-			ID:            wallet.ID,
-			Name:          cases.Upper(language.English).String(wallet.Token),
-			Currency:      wallet.Token,
-			Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
-			LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
-			User:          user.Data,
+			ID:                wallet.ID,
+			Name:              cases.Upper(language.English).String(wallet.Token),
+			Currency:          wallet.Token,
+			Balance:           utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+			LockedBalance:     utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
+			User:              user.Data,
+			ConvertedBalance:  utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))) * Rates[wallet.Token]["ngn"],
+			CreatedAt:         time.UnixMicro(int64(res[i].Timestamp / 1000)),
+			UpdatedAt:         time.UnixMicro(int64(res[i].Timestamp / 1000)),
+			ReferenceCurrency: "ngn",
+			IsCrypto:          wallet.Token != "ngn",
 		}
 	}
 
@@ -174,12 +181,17 @@ func (w *walletService) FetchUserWallet(ctx context.Context, req *requests.Fetch
 	balance := credits.Sub(&credits, &debits)
 	balance = balance.Sub(balance, &pendingDebits)
 	data := &responses.UserWalletResponseData{
-		ID:            wallet.ID,
-		Name:          cases.Upper(language.English).String(wallet.Token),
-		Currency:      wallet.Token,
-		Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
-		LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
-		User:          user.Data,
+		ID:                wallet.ID,
+		Name:              cases.Upper(language.English).String(wallet.Token),
+		Currency:          wallet.Token,
+		Balance:           utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+		LockedBalance:     utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
+		User:              user.Data,
+		ConvertedBalance:  utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))) * Rates[wallet.Token]["ngn"],
+		CreatedAt:         time.UnixMicro(int64(res[0].Timestamp / 1000)),
+		UpdatedAt:         time.UnixMicro(int64(res[0].Timestamp / 1000)),
+		ReferenceCurrency: "ngn",
+		IsCrypto:          wallet.Token == "ngn",
 	}
 
 	return &responses.Response[*responses.UserWalletResponseData]{
@@ -245,12 +257,17 @@ func (w *walletService) LookupWallets(ctx context.Context, ids []string) (map[st
 		user := accountMap[wallet.AccountID]
 
 		data[res[i].ID.String()] = &responses.UserWalletResponseData{
-			ID:            wallet.ID,
-			Name:          cases.Upper(language.English).String(wallet.Token),
-			Currency:      wallet.Token,
-			Balance:       utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
-			LockedBalance: utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
-			User:          user,
+			ID:                wallet.ID,
+			Name:              cases.Upper(language.English).String(wallet.Token),
+			Currency:          wallet.Token,
+			Balance:           utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))),
+			LockedBalance:     utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(pendingDebits))),
+			User:              user,
+			ConvertedBalance:  utils.ApproximateAmount(wallet.Token, utils.FromAmount(tdb_types.BigIntToUint128(*balance))) * Rates[wallet.Token]["ngn"],
+			CreatedAt:         time.UnixMicro(int64(res[i].Timestamp / 1000)),
+			UpdatedAt:         time.UnixMicro(int64(res[i].Timestamp / 1000)),
+			ReferenceCurrency: "ngn",
+			IsCrypto:          wallet.Token != "ngn",
 		}
 	}
 

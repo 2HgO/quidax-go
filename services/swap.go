@@ -20,12 +20,12 @@ import (
 )
 
 type InstantSwapService interface {
-	CreateInstantSwap(ctx context.Context, req *requests.CreateInstantSwapRequest) (*responses.Response[*responses.InstantSwapQuotationResponseData], error)
-	ConfirmInstantSwap(ctx context.Context, req *requests.ConfirmInstanSwapRequest) (*responses.Response[*responses.InstantSwapResponseData], error)
-	RefreshInstantSwap(ctx context.Context, req *requests.RefreshInstantSwapRequest) (*responses.Response[*responses.InstantSwapQuotationResponseData], error)
-	FetchInstantSwapTransaction(ctx context.Context, req *requests.FetchInstantSwapTransactionRequest) (*responses.Response[*responses.InstantSwapResponseData], error)
-	GetInstantSwapTransactions(ctx context.Context, req *requests.GetInstantSwapTransactionsRequest) (*responses.Response[[]*responses.InstantSwapResponseData], error)
-	QuoteInstantSwap(ctx context.Context, req *requests.CreateInstantSwapRequest) (*responses.Response[*responses.QuoteInstantSwapResponseData], error)
+	CreateInstantSwap(context.Context, *requests.CreateInstantSwapRequest) (*responses.Response[*responses.InstantSwapQuotationResponseData], error)
+	ConfirmInstantSwap(context.Context, *requests.ConfirmInstanSwapRequest) (*responses.Response[*responses.InstantSwapResponseData], error)
+	// RefreshInstantSwap(context.Context, *requests.RefreshInstantSwapRequest) (*responses.Response[*responses.InstantSwapQuotationResponseData], error)
+	FetchInstantSwapTransaction(context.Context, *requests.FetchInstantSwapTransactionRequest) (*responses.Response[*responses.InstantSwapResponseData], error)
+	GetInstantSwapTransactions(context.Context, *requests.GetInstantSwapTransactionsRequest) (*responses.Response[[]*responses.InstantSwapResponseData], error)
+	QuoteInstantSwap(context.Context, *requests.CreateInstantSwapRequest) (*responses.Response[*responses.QuoteInstantSwapResponseData], error)
 }
 
 func NewInstantSwapService(
@@ -38,7 +38,7 @@ func NewInstantSwapService(
 	log *zap.Logger,
 ) InstantSwapService {
 	return &instantSwapService{
-		service: service{
+		service{
 			transactionDB:  txDatabase,
 			dataDB:         dataDatabase,
 			accountService: accountService,
@@ -51,8 +51,6 @@ func NewInstantSwapService(
 }
 
 type instantSwapService struct {
-	InstantSwapService
-
 	service
 }
 
@@ -293,7 +291,7 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
 				ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
 				Confirmed:      true,
-				ExpiresAt:      time.Unix(int64(transactions[0].Timeout), 0),
+				ExpiresAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)).Add(time.Second * 12),
 				CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
 				User:           user.Data,
 			},
@@ -393,7 +391,7 @@ failedTransfer:
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 			ToAmount:       utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 			Confirmed:      true,
-			ExpiresAt:      time.Unix(int64(transactions[0].Timeout), 0),
+			ExpiresAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)).Add(time.Second * 12),
 			CreatedAt:      time.UnixMicro(int64(transactions[0].Timestamp / 1000)),
 			User:           user.Data,
 		},

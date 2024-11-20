@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -21,24 +20,23 @@ import (
 	"github.com/2HgO/quidax-go/models"
 	"github.com/2HgO/quidax-go/types/requests"
 	"github.com/2HgO/quidax-go/types/responses"
-	"github.com/2HgO/quidax-go/utils"
 )
 
 type AccountService interface {
-	CreateSubAccount(ctx context.Context, req *requests.CreateSubAccountRequest) (*responses.Response[*models.Account], error)
-	EditSubAccountDetails(ctx context.Context, req *requests.EditSubAccountDetailsRequest) (*responses.Response[*models.Account], error)
-	FetchAllSubAccounts(ctx context.Context, req *requests.FetchAllSubAccountsRequest) (*responses.Response[[]*models.Account], error)
-	FetchAccountDetails(ctx context.Context, req *requests.FetchAccountDetailsRequest) (*responses.Response[*models.Account], error)
+	CreateSubAccount(context.Context, *requests.CreateSubAccountRequest) (*responses.Response[*models.Account], error)
+	EditSubAccountDetails(context.Context, *requests.EditSubAccountDetailsRequest) (*responses.Response[*models.Account], error)
+	FetchAllSubAccounts(context.Context, *requests.FetchAllSubAccountsRequest) (*responses.Response[[]*models.Account], error)
+	FetchAccountDetails(context.Context, *requests.FetchAccountDetailsRequest) (*responses.Response[*models.Account], error)
 
-	CreateAccount(ctx context.Context, req *requests.CreateAccountRequest) (*responses.Response[*responses.CreateAccountResponseData], error)
-	UpdateWebHookURL(ctx context.Context, req *requests.UpdateWebhookURLRequest) error
-	GenerateToken(ctx context.Context, req *requests.GenerateTokenRequest) (*responses.Response[*models.AccessToken], error)
-	GetAccountByAccessToken(ctx context.Context, token string) (*models.Account, error)
+	CreateAccount(context.Context, *requests.CreateAccountRequest) (*responses.Response[*responses.CreateAccountResponseData], error)
+	UpdateWebHookURL(context.Context, *requests.UpdateWebhookURLRequest) error
+	// GenerateToken(context.Context, *requests.GenerateTokenRequest) (*responses.Response[*models.AccessToken], error)
+	GetAccountByAccessToken(context.Context, string) (*models.Account, error)
 }
 
 func NewAccountService(txDatabase tdb.Client, dataDatabase *sql.DB, log *zap.Logger) AccountService {
 	return &accountService{
-		service: service{
+		service{
 			transactionDB: txDatabase,
 			dataDB:        dataDatabase,
 			log:           log,
@@ -47,7 +45,6 @@ func NewAccountService(txDatabase tdb.Client, dataDatabase *sql.DB, log *zap.Log
 }
 
 type accountService struct {
-	AccountService
 	service
 }
 
@@ -165,26 +162,6 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 	}
 	if len(txRes) > 0 {
 		return nil, errors.NewUnknownError(txRes[0].Result.String())
-	}
-
-	// ! seed main account with 9999 credit
-	seed := []tdb_types.Transfer{}
-	for _, wallet := range wallets {
-		seed = append(seed, tdb_types.Transfer{
-			ID:              tdb_types.ID(),
-			CreditAccountID: wallet.ID,
-			DebitAccountID:  tdb_types.ToUint128(uint64(wallet.Ledger)),
-			Ledger:          wallet.Ledger,
-			Code:            3,
-			Amount:          utils.ToAmount(10000000),
-		})
-	}
-	seedRes, err := a.transactionDB.CreateTransfers(seed)
-	if err != nil {
-		a.log.Error("attempting to see main account", zap.Error(err))
-	}
-	for _, s := range seedRes {
-		a.log.Error("attempting to see main account", zap.String(fmt.Sprintf("errorType[%d]", s.Index), s.Result.String()))
 	}
 
 	if err = tx.Commit(); err != nil {

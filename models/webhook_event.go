@@ -16,8 +16,10 @@ const (
 	SwapTransactionReversed_WebhookEvent
 	SwapTransactionFailed_WebhookEvent
 
-	WithdrawalCompleted_WebhookEvent
-	WithdrawalFailed_WebhookEvent
+	WithdrawalSuccessful_WebhookEvent
+	WithdrawalRejected_WebhookEvent
+
+	DepositSuccessful_WebhookEvent
 )
 
 func (w WebhookEvent) String() string {
@@ -30,10 +32,12 @@ func (w WebhookEvent) String() string {
 		return "swap_transaction.reversed"
 	case SwapTransactionFailed_WebhookEvent:
 		return "swap_transaction.failed"
-	case WithdrawalCompleted_WebhookEvent:
-		return "withdrawal.completed"
-	case WithdrawalFailed_WebhookEvent:
-		return "withdrawal.failed"
+	case WithdrawalSuccessful_WebhookEvent:
+		return "withdraw.successful"
+	case WithdrawalRejected_WebhookEvent:
+		return "withdraw.rejected"
+	case DepositSuccessful_WebhookEvent:
+		return "deposit.successful"
 	default:
 		panic("unreachable")
 	}
