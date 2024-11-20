@@ -151,7 +151,7 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		Wallet:          wallet.Data,
 		User:            wallet.Data.User,
 	}
-	go w.webhookService.SendWithdrawalCompletedEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
+	go w.webhookService.SendWithdrawalSuccessfulEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
 
 	return &responses.Response[*responses.WithdrawalResponseData]{
 		Data: data,
