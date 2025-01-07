@@ -275,7 +275,7 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 			ID:             swap.ID,
 			FromCurrency:   Ledgers[transactions[0].Ledger],
 			ToCurrency:     Ledgers[transactions[1].Ledger],
-			ExecutionPrice: swap.ExecutionRate,
+			ExecutionPrice: utils.Formatter.Sprintf("%f", swap.ExecutionRate),
 			FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], utils.FromAmount(transactions[0].Amount)),
 			ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], utils.FromAmount(transactions[1].Amount)),
 			CreatedAt:      now,
@@ -300,7 +300,7 @@ func (i *instantSwapService) ConfirmInstantSwap(ctx context.Context, req *reques
 }
 
 func (i *instantSwapService) processSwap(swap models.InstantSwap, ts time.Time, transactions []tdb_types.Transfer) {
-	failed := false
+	failed := utils.FromAmount(transactions[0].Amount) > 100
 
 	user, err := i.accountService.FetchAccountDetails(context.WithValue(context.Background(), "skip_check", true), &requests.FetchAccountDetailsRequest{UserID: uuid.UUID(transactions[0].UserData128.Bytes()).String()})
 	if err != nil {
@@ -324,7 +324,8 @@ func (i *instantSwapService) processSwap(swap models.InstantSwap, ts time.Time, 
 			Code:            1,
 			Flags: tdb_types.TransferFlags{
 				Linked:              true,
-				PostPendingTransfer: true,
+				PostPendingTransfer: utils.FromAmount(transactions[0].Amount) <= 100,
+				VoidPendingTransfer: utils.FromAmount(transactions[0].Amount) > 100,
 			}.ToUint16(),
 		},
 		{
@@ -337,7 +338,8 @@ func (i *instantSwapService) processSwap(swap models.InstantSwap, ts time.Time, 
 			PendingID:       transactions[1].ID,
 			Code:            1,
 			Flags: tdb_types.TransferFlags{
-				PostPendingTransfer: true,
+				PostPendingTransfer: utils.FromAmount(transactions[0].Amount) <= 100,
+				VoidPendingTransfer: utils.FromAmount(transactions[0].Amount) > 100,
 			}.ToUint16(),
 		},
 	}
@@ -375,7 +377,7 @@ failedTransfer:
 		ID:             swap.ID,
 		FromCurrency:   Ledgers[transactions[0].Ledger],
 		ToCurrency:     Ledgers[transactions[1].Ledger],
-		ExecutionPrice: swap.ExecutionRate,
+		ExecutionPrice: utils.Formatter.Sprintf("%f", swap.ExecutionRate),
 		FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 		ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 		CreatedAt:      ts,
@@ -404,6 +406,7 @@ failedTransfer:
 
 		// todo: send wallet updated event for debit wallet
 	default:
+		data.Status = "failed"
 		i.webhookService.
 			SendInstantSwapCompletedEvent(user.Data.WebhookDetails, data)
 
@@ -570,7 +573,7 @@ func (i *instantSwapService) groupTransactions(txs []tdb_types.Transfer, user *m
 			ID:             swap.ID,
 			FromCurrency:   Ledgers[qtx0.Ledger],
 			ToCurrency:     Ledgers[qtx1.Ledger],
-			ExecutionPrice: swap.ExecutionRate,
+			ExecutionPrice: utils.Formatter.Sprintf("%f", swap.ExecutionRate),
 			FromAmount:     utils.ApproximateAmount(Ledgers[qtx0.Ledger], utils.FromAmount(qtx0.Amount)),
 			ReceivedAmount: utils.ApproximateAmount(Ledgers[qtx1.Ledger], utils.FromAmount(qtx1.Amount)),
 			CreatedAt:      time.UnixMicro(int64(qtx0.Timestamp / 1000)),

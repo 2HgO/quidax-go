@@ -129,5 +129,7 @@ func (w *webhookService) SendWithdrawalRejectedEvent(whDetails models.WebhookDet
 }
 
 func (w *webhookService) SendDepositSuccessfulEvent(whDetails models.WebhookDetails, data *responses.DepositResponseData) (self WebhookService) {
+	w.sendEvent(whDetails, models.DepositConfirmation_WebhookEvent, data)
+	time.Sleep(time.Second * 5)
 	return w.sendEvent(whDetails, models.DepositSuccessful_WebhookEvent, data)
 }

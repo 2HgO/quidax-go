@@ -101,6 +101,8 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 		RunWith(tx).
 		ExecContext(ctx)
 
+		// TODO: create corresponding `internal` deposit for recipient wallet
+
 	if err != nil {
 		return nil, err
 	}

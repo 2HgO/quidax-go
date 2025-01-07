@@ -13,7 +13,7 @@ import (
 type AccountHandler interface {
 	CreateAccount(http.ResponseWriter, *http.Request)
 	UpdateWebHookURL(http.ResponseWriter, *http.Request)
-	
+
 	FetchAccountDetails(http.ResponseWriter, *http.Request)
 	CreateSubAccount(http.ResponseWriter, *http.Request)
 	EditSubAccountDetails(http.ResponseWriter, *http.Request)
