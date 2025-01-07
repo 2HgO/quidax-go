@@ -12,7 +12,7 @@ type InstantSwapResponseData struct {
 	ToCurrency     string                            `json:"to_currency"`
 	FromAmount     float64                           `json:"from_amount,string"`
 	ReceivedAmount float64                           `json:"received_amount,string"`
-	ExecutionPrice float64                           `json:"execution_price,string"`
+	ExecutionPrice string                            `json:"execution_price"`
 	Status         string                            `json:"status"`
 	CreatedAt      time.Time                         `json:"created_at"`
 	UpdatedAt      time.Time                         `json:"updated_at"`

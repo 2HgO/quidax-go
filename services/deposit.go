@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/2HgO/quidax-go/errors"
+	"github.com/2HgO/quidax-go/models"
 	"github.com/2HgO/quidax-go/types/requests"
 	"github.com/2HgO/quidax-go/types/responses"
 	"github.com/2HgO/quidax-go/utils"
@@ -112,7 +113,7 @@ func (d *depositService) FetchDeposit(ctx context.Context, req *requests.FetchDe
 
 	data := &responses.DepositResponseData{
 		ID:        deposit.ID.String(),
-		Type:      "internal",
+		Type:      models.CoinAddress_RecipientType,
 		User:      user.Data,
 		Wallet:    wallet,
 		Currency:  wallet.Currency,
@@ -175,7 +176,7 @@ func (d *depositService) FetchDeposits(ctx context.Context, req *requests.FetchD
 
 		deposit := &responses.DepositResponseData{
 			ID:        transfer.ID.String(),
-			Type:      "internal",
+			Type:      models.CoinAddress_RecipientType,
 			User:      user.Data,
 			Wallet:    wallet,
 			Currency:  wallet.Currency,

@@ -148,7 +148,7 @@ func (s *schedulerService) ScheduleInstantSwapReversal(id string, dueAt time.Tim
 				ID:             swap.ID,
 				FromCurrency:   Ledgers[transactions[0].Ledger],
 				ToCurrency:     Ledgers[transactions[1].Ledger],
-				ExecutionPrice: swap.ExecutionRate,
+				ExecutionPrice: utils.Formatter.Sprintf("%f", swap.ExecutionRate),
 				FromAmount:     utils.ApproximateAmount(Ledgers[transactions[0].Ledger], fromAmount),
 				ReceivedAmount: utils.ApproximateAmount(Ledgers[transactions[1].Ledger], toAmount),
 				CreatedAt:      now,

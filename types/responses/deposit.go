@@ -8,7 +8,7 @@ import (
 
 type DepositResponseData struct {
 	ID        string                  `json:"id"`
-	Type      string                  `json:"type"`
+	Type      models.RecipientType    `json:"type"`
 	User      *models.Account         `json:"user"`
 	Wallet    *UserWalletResponseData `json:"wallet"`
 	Currency  string                  `json:"currency"`
