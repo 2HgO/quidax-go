@@ -31,8 +31,8 @@ type instantSwapHandler struct {
 }
 
 func (i *instantSwapHandler) ServeHttp(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/users/{user_id}/temporary_swap_quotation", i.middlewares.AttchValidateAccessToken(i.TemporaryInstantSwapQuotation))
-	mux.HandleFunc("POST /api/v1/users/{user_id}/swap_quotation", i.middlewares.AttchValidateAccessToken(i.CreateInstantSwap))
+	mux.HandleFunc("POST /api/v1/users/{user_id}/temporary_swap_quotation", i.middlewares.AttachValidateAccessToken(i.TemporaryInstantSwapQuotation))
+	mux.HandleFunc("POST /api/v1/users/{user_id}/swap_quotation", i.middlewares.AttachValidateAccessToken(i.CreateInstantSwap))
 	markets := map[string]any{}
 	for k := range services.Rates {
 		for j := range services.Rates {
@@ -46,14 +46,14 @@ func (i *instantSwapHandler) ServeHttp(mux *http.ServeMux) {
 			}
 		}
 	}
-	mux.HandleFunc("GET /api/v1/markets/tickers/{market}", i.middlewares.AttchValidateAccessToken(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/markets/tickers/{market}", i.middlewares.AttachValidateAccessToken(func(w http.ResponseWriter, r *http.Request) {
 		utils.JSON(w, 200, map[string]any{
 			"data": markets[r.PathValue("market")],
 		})
 	}))
-	mux.HandleFunc("POST /api/v1/users/{user_id}/swap_quotation/{quotation_id}/confirm", i.middlewares.AttchValidateAccessToken(i.ConfirmInstantSwap))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/swap_transactions/{swap_transaction_id}", i.middlewares.AttchValidateAccessToken(i.FetchInstantSwapTransaction))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/swap_transactions", i.middlewares.AttchValidateAccessToken(i.GetInstantSwapTransactions))
+	mux.HandleFunc("POST /api/v1/users/{user_id}/swap_quotation/{quotation_id}/confirm", i.middlewares.AttachValidateAccessToken(i.ConfirmInstantSwap))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/swap_transactions/{swap_transaction_id}", i.middlewares.AttachValidateAccessToken(i.FetchInstantSwapTransaction))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/swap_transactions", i.middlewares.AttachValidateAccessToken(i.GetInstantSwapTransactions))
 }
 
 func (i *instantSwapHandler) CreateInstantSwap(w http.ResponseWriter, r *http.Request) {

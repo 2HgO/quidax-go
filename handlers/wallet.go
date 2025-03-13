@@ -29,18 +29,44 @@ type walletHandler struct {
 }
 
 func (ws *walletHandler) ServeHttp(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets", ws.middlewares.AttchValidateAccessToken(ws.FetchUserWallets))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}", ws.middlewares.AttchValidateAccessToken(ws.FetchUserWallet))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}/address", ws.middlewares.AttchValidateAccessToken(func(w http.ResponseWriter, r *http.Request) {
-		walletRes, err := ws.walletService.FetchUserWallet(r.Context(), &requests.FetchUserWalletRequest{UserID: r.PathValue("user_id"), Currency: r.PathValue("currency")})
-		if err != nil {
-			errors.AsAppError(err).Serialize(w)
-			return
-		}
-		wallet := walletRes.Data
-		utils.JSON(w, 200, responses.Response[any]{
-			Status: "successful",
-			Data: map[string]any{
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets", ws.middlewares.AttachValidateAccessToken(ws.FetchUserWallets))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}", ws.middlewares.AttachValidateAccessToken(ws.FetchUserWallet))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}/address", ws.middlewares.AttachValidateAccessToken(ws.FetchPaymentAddress))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/wallets/{currency}/addresses", ws.middlewares.AttachValidateAccessToken(ws.FetchPaymentAddresses))
+}
+
+func (ws *walletHandler) FetchPaymentAddress(w http.ResponseWriter, r *http.Request) {
+	walletRes, err := ws.walletService.FetchUserWallet(r.Context(), &requests.FetchUserWalletRequest{UserID: r.PathValue("user_id"), Currency: r.PathValue("currency")})
+	if err != nil {
+		errors.AsAppError(err).Serialize(w)
+		return
+	}
+	wallet := walletRes.Data
+	utils.JSON(w, 200, responses.Response[any]{
+		Status: "successful",
+		Data: map[string]any{
+			"id":              wallet.ID,
+			"reference":       wallet.ID,
+			"currency":        wallet.Currency,
+			"address":         "",
+			"destination_tag": "deposit_not_supported",
+			"total_payments":  "0",
+			"network":         "",
+		},
+	})
+}
+
+func (ws *walletHandler) FetchPaymentAddresses(w http.ResponseWriter, r *http.Request) {
+	walletRes, err := ws.walletService.FetchUserWallet(r.Context(), &requests.FetchUserWalletRequest{UserID: r.PathValue("user_id"), Currency: r.PathValue("currency")})
+	if err != nil {
+		errors.AsAppError(err).Serialize(w)
+		return
+	}
+	wallet := walletRes.Data
+	utils.JSON(w, 200, responses.Response[[]map[string]any]{
+		Status: "successful",
+		Data: []map[string]any{
+			{
 				"id":              wallet.ID,
 				"reference":       wallet.ID,
 				"currency":        wallet.Currency,
@@ -49,8 +75,8 @@ func (ws *walletHandler) ServeHttp(mux *http.ServeMux) {
 				"total_payments":  "0",
 				"network":         "",
 			},
-		})
-	}))
+		},
+	})
 }
 
 func (ws *walletHandler) FetchUserWallet(w http.ResponseWriter, r *http.Request) {

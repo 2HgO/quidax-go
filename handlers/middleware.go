@@ -12,7 +12,7 @@ import (
 )
 
 type MiddleWareHandler interface {
-	AttchValidateAccessToken(http.HandlerFunc) http.HandlerFunc
+	AttachValidateAccessToken(http.HandlerFunc) http.HandlerFunc
 }
 
 type middlewareHandler struct {
@@ -24,7 +24,7 @@ func NewMiddlewareHandler(account services.AccountService, log *zap.Logger) Midd
 	return &middlewareHandler{accountService: account, log: log}
 }
 
-func (m *middlewareHandler) AttchValidateAccessToken(h http.HandlerFunc) http.HandlerFunc {
+func (m *middlewareHandler) AttachValidateAccessToken(h http.HandlerFunc) http.HandlerFunc {
 	return utils.Middleware(h, m.validateAccessToken)
 }
 

@@ -35,12 +35,12 @@ type accountHandler struct {
 func (a *accountHandler) ServeHttp(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/accounts", a.CreateAccount)
 
-	mux.HandleFunc("PUT /api/v1/accounts", a.middlewares.AttchValidateAccessToken(a.UpdateWebHookURL))
+	mux.HandleFunc("PUT /api/v1/accounts", a.middlewares.AttachValidateAccessToken(a.UpdateWebHookURL))
 
-	mux.HandleFunc("POST /api/v1/users", a.middlewares.AttchValidateAccessToken(a.CreateSubAccount))
-	mux.HandleFunc("GET /api/v1/users", a.middlewares.AttchValidateAccessToken(a.FetchAllSubAccounts))
-	mux.HandleFunc("PUT /api/v1/users/{user_id}", a.middlewares.AttchValidateAccessToken(a.EditSubAccountDetails))
-	mux.HandleFunc("GET /api/v1/users/{user_id}", a.middlewares.AttchValidateAccessToken(a.FetchAccountDetails))
+	mux.HandleFunc("POST /api/v1/users", a.middlewares.AttachValidateAccessToken(a.CreateSubAccount))
+	mux.HandleFunc("GET /api/v1/users", a.middlewares.AttachValidateAccessToken(a.FetchAllSubAccounts))
+	mux.HandleFunc("PUT /api/v1/users/{user_id}", a.middlewares.AttachValidateAccessToken(a.EditSubAccountDetails))
+	mux.HandleFunc("GET /api/v1/users/{user_id}", a.middlewares.AttachValidateAccessToken(a.FetchAccountDetails))
 }
 
 func (a *accountHandler) CreateAccount(w http.ResponseWriter, r *http.Request) {

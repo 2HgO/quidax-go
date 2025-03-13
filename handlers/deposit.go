@@ -29,10 +29,10 @@ type depositHandler struct {
 }
 
 func (d *depositHandler) ServeHttp(mux *http.ServeMux) {
-	mux.Handle("POST /api/v1/users/{user_id}/deposits/{currency}", d.middlewares.AttchValidateAccessToken(d.DepositAmount))
-	mux.Handle("GET /api/v1/users/{user_id}/deposits", d.middlewares.AttchValidateAccessToken(d.FetchDeposits))
-	mux.Handle("GET /api/v1/users/{user_id}/deposits/currency/{currency}", d.middlewares.AttchValidateAccessToken(d.FetchDeposits))
-	mux.Handle("GET /api/v1/users/{user_id}/deposits/{transaction_id}", d.middlewares.AttchValidateAccessToken(d.FetchDeposit))
+	mux.Handle("POST /api/v1/users/{user_id}/deposits/{currency}", d.middlewares.AttachValidateAccessToken(d.DepositAmount))
+	mux.Handle("GET /api/v1/users/{user_id}/deposits", d.middlewares.AttachValidateAccessToken(d.FetchDeposits))
+	mux.Handle("GET /api/v1/users/{user_id}/deposits/currency/{currency}", d.middlewares.AttachValidateAccessToken(d.FetchDeposits))
+	mux.Handle("GET /api/v1/users/{user_id}/deposits/{transaction_id}", d.middlewares.AttachValidateAccessToken(d.FetchDeposit))
 }
 
 func (d *depositHandler) DepositAmount(w http.ResponseWriter, r *http.Request) {

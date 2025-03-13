@@ -30,10 +30,10 @@ type withdrawalHandler struct {
 }
 
 func (wd *withdrawalHandler) ServeHttp(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/users/{user_id}/withdraws", wd.middlewares.AttchValidateAccessToken(wd.CreateWithdrawal))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws", wd.middlewares.AttchValidateAccessToken(wd.FetchWithdrawals))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws/reference/{reference}", wd.middlewares.AttchValidateAccessToken(wd.FetchWithdrawalByRef))
-	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws/{withdrawal_id}", wd.middlewares.AttchValidateAccessToken(wd.FetchWithdrawal))
+	mux.HandleFunc("POST /api/v1/users/{user_id}/withdraws", wd.middlewares.AttachValidateAccessToken(wd.CreateWithdrawal))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws", wd.middlewares.AttachValidateAccessToken(wd.FetchWithdrawals))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws/reference/{reference}", wd.middlewares.AttachValidateAccessToken(wd.FetchWithdrawalByRef))
+	mux.HandleFunc("GET /api/v1/users/{user_id}/withdraws/{withdrawal_id}", wd.middlewares.AttachValidateAccessToken(wd.FetchWithdrawal))
 }
 
 func (wd *withdrawalHandler) CreateWithdrawal(w http.ResponseWriter, r *http.Request) {
