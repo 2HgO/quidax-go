@@ -1,13 +1,5 @@
 version: '3.9'
 
-networks:
-  quidax-go:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 10.5.0.0/16
-          gateway: 10.5.0.1
-
 services:
   datadb:
     logging:
@@ -16,57 +8,32 @@ services:
       dockerfile: Dockerfile.mysql
       context: .
     restart: always
-    ports:
-      - '3306:3306'
     expose:
       - 3306
     environment:
       MYSQL_DATABASE: quidax-go
       MYSQL_ALLOW_EMPTY_PASSWORD: true
-    networks:
-      quidax-go:
-        ipv4_address: 10.5.0.4
     volumes:
       - ./data/mysql:/var/lib/mysql
-  txdbrepl1:
+  app:
     build:
       dockerfile: Dockerfile.tigerbeetle
     # command: start --addresses=repl1.docker.internal:3000,repl2.docker.internal:3001,repl3.docker.internal:3002 /data/quidax_01.tigerbeetle
-    command: start --addresses=10.5.0.5:3000 --cache-grid=256MiB /data/quidax_01.tigerbeetle
     restart: always
     ports:
       - '3000:3000'
-    expose:
-      - 3000
+      - '55059:8080'
+    environment:
+      - CGO_ENABLED=1
+      - DATA_DB_URL=datadb:3306
+      - TX_DB_URL=127.0.0.1:3000
     cap_add:    
       - IPC_LOCK
     volumes:
-      - ./data/tigerbeetle:/data
+      - ./data/tigerbeetle:/db/data
     security_opt:
       - "seccomp=unconfined"
     privileged: true
-    # hostname: repl1.docker.internal
-    environment:
-      - CLUSTERNAME=quidax_01
-      - CLUSTERNUMBER=0
-      - CLUSTERCOUNT=1
-    networks:
-      quidax-go:
-        ipv4_address: 10.5.0.5
-  app:
-    build:
-      dockerfile: Dockerfile.app
-      context: .
-    restart: unless-stopped
-    ports:
-      - '55059:55059'
-    environment:
-      - CGO_ENABLED=1
-      - DATA_DB_URL=10.5.0.4:3306
-      - TX_DB_URL=10.5.0.5:3000
     depends_on:
-      - txdbrepl1
       - datadb
-    networks:
-      quidax-go:
-        ipv4_address: 10.5.0.8
+    # hostname: repl1.docker.internal

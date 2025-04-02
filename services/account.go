@@ -388,7 +388,7 @@ func (a *accountService) FetchAllSubAccounts(ctx context.Context, req *requests.
 	rows, err := sq.
 		Select("id", "sn", "display_name", "email", "first_name", "last_name", "created_at", "updated_at").
 		From("accounts").
-		Where("parent_id", parent.ID).
+		Where(sq.Eq{"parent_id": parent.ID}).
 		RunWith(a.dataDB).
 		QueryContext(ctx)
 	if err != nil {

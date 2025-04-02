@@ -1,9 +1,58 @@
-FROM ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+# FROM --platform=linux/amd64 golang:1.22.4 AS go-builder
+FROM golang:1.22.4 AS go-builder
 
-RUN mkdir -p /data
+RUN mkdir -p /db
 
-COPY entrypoint.sh /entrypoint.sh
+WORKDIR /db
 
-RUN chmod +x /entrypoint.sh
+RUN apt-get update && apt-get install -y unzip
 
-ENTRYPOINT [ "/entrypoint.sh" ]
+# RUN curl -Lo tigerbeetle.zip https://github.com/tigerbeetle/tigerbeetle/releases/download/0.16.11/tigerbeetle-x86_64-linux.zip && unzip tigerbeetle.zip
+RUN curl -Lo tigerbeetle.zip https://github.com/tigerbeetle/tigerbeetle/releases/download/0.16.11/tigerbeetle-aarch64-linux.zip && unzip tigerbeetle.zip
+
+RUN mkdir -p /db/data
+
+# RUN apk add build-base
+# RUN apk --no-cache add openssl
+
+RUN mkdir -p /app
+
+WORKDIR /app
+
+COPY go.mod .
+
+COPY go.sum .
+
+RUN go mod download
+
+COPY . .
+
+RUN GIT_TERMINAL_PROMPT=1 \
+    # CGO_CFLAGS='-O2 -g -w' \
+    CGO_ENABLED=1 \
+    go build -v -o quidax-go
+
+# EXPOSE 80
+
+# EXPOSE 3000
+
+# CMD ["./quidax-go"]
+
+# FROM ghcr.io/tigerbeetle/tigerbeetle:0.16.11
+
+# RUN mkdir -p /data
+# RUN mkdir -p /app
+
+# RUN apk add --no-cache make build-base
+
+# COPY --from=go-builder /app/quidax-go /app/quidax-go
+
+# COPY Makefile /Makefile
+
+# COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /app/entrypoint.sh
+
+EXPOSE 8080
+
+ENTRYPOINT [ "/app/entrypoint.sh" ]
