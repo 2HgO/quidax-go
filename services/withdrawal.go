@@ -52,7 +52,15 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 	}
 	destination, err := w.walletService.FetchUserWallet(context.WithValue(ctx, "skip_check", true), &requests.FetchUserWalletRequest{UserID: req.FundUid, Currency: req.Currency})
 	if err != nil {
-		return nil, err
+		if (uuid.Validate(req.FundUid) != nil) {
+			return &responses.Response[*responses.WithdrawalResponseData]{
+				Status:  "success",
+				Message: "Successful",
+				Data: nil,
+			}, nil
+		} else {
+			return nil, err
+		}
 	}
 	destinationID, err := tdb_types.HexStringToUint128(destination.Data.ID)
 	if err != nil {
@@ -156,6 +164,8 @@ func (w *withdrawalService) CreateUserWithdrawal(ctx context.Context, req *reque
 	go w.webhookService.SendWithdrawalSuccessfulEvent(ctx.Value("user").(*models.Account).WebhookDetails, data)
 
 	return &responses.Response[*responses.WithdrawalResponseData]{
+		Status:  "success",
+		Message: "Successful",
 		Data: data,
 	}, nil
 }
@@ -206,6 +216,7 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 	if err != nil {
 		return nil, errors.HandleDataDBError(err)
 	}
+	withdrawal.Wallet.Networks = make([]any, 0)
 
 	data, err := w.populateWithdrawals(ctx, map[string]*responses.WithdrawalResponseData{withdrawal.TransactionID: withdrawal}, user.Data)
 	if err != nil {
@@ -217,8 +228,9 @@ func (w *withdrawalService) FetchWithdrawal(ctx context.Context, req *requests.F
 	}
 
 	return &responses.Response[*responses.WithdrawalResponseData]{
-		Status: "successful",
-		Data:   data[0],
+		Status:  "success",
+		Message: "Successful",
+		Data:    data[0],
 	}, nil
 }
 
@@ -321,6 +333,7 @@ func (w *withdrawalService) populateWithdrawals(ctx context.Context, withdrawals
 		withdrawal.Total = withdrawal.Amount
 		withdrawal.CreatedAt = time.UnixMicro(int64(tx.Timestamp / 1000))
 		withdrawal.DoneAt = withdrawal.CreatedAt
+		withdrawal.Wallet.Networks = make([]any, 0)
 
 		switch {
 		case withdrawal.User.ID == user.ID:

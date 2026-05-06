@@ -169,7 +169,7 @@ func (a *accountService) CreateAccount(ctx context.Context, req *requests.Create
 	}
 
 	return &responses.Response[*responses.CreateAccountResponseData]{
-		Status:  "successful",
+		Status:  "success",
 		Message: "Account Created successfully",
 		Data: &responses.CreateAccountResponseData{
 			User:  account,
@@ -215,8 +215,9 @@ func (a *accountService) FetchAccountDetails(ctx context.Context, req *requests.
 	}
 
 	return &responses.Response[*models.Account]{
-		Status: "successful",
-		Data:   account,
+		Status:  "success",
+		Message: "Successful",
+		Data:    account,
 	}, nil
 }
 
@@ -339,7 +340,7 @@ func (a *accountService) CreateSubAccount(ctx context.Context, req *requests.Cre
 	}
 
 	return &responses.Response[*models.Account]{
-		Status:  "successful",
+		Status:  "success",
 		Message: "Account Created successfully",
 		Data:    account,
 	}, nil
@@ -406,7 +407,7 @@ func (a *accountService) FetchAllSubAccounts(ctx context.Context, req *requests.
 	}
 
 	return &responses.Response[[]*models.Account]{
-		Status: "successful",
+		Status: "success",
 		Data:   res,
 	}, nil
 }

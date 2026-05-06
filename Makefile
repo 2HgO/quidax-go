@@ -11,3 +11,6 @@ endif
 .PHONY: run
 run:
 	@go run .
+
+tunnel:
+	ssh -R 80:localhost:55060 localhost.run
